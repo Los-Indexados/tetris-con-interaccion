@@ -44,7 +44,7 @@ const HandPose = (() => {
   const callbacks = {
     onCameraError: null,
     onCameraActive: null,
-    onHandsDetected: null,
+    onHandsUpdate: null,
     onGestureDetected: null,
   };
 
@@ -159,19 +159,16 @@ const HandPose = (() => {
   // SECCIÓN: DETECCIÓN DE MANOS
   // =========================================================================
   // Carga el modelo handPose de ml5.js y detecta manos en tiempo real.
-  // Limita a 2 manos máximo y distingue izquierda/derecha.
+  // Limita a 2 manos máximo, normaliza coordenadas (0-1) e incluye centro de palma.
 
   function initHandDetection() {
     // Esperar a que ml5.js esté disponible y completamente cargado
     if (typeof ml5 === 'undefined' || !ml5.handPose) {
-      console.warn('⏳ Esperando a ml5.js...');
       setTimeout(initHandDetection, 500);
       return;
     }
 
     try {
-      console.log('🚀 Iniciando ml5.handPose...');
-      
       // ml5.js v1.4.0 devuelve una Promesa
       ml5.handPose(state.camera.video.elt || state.camera.video).then((detector) => {
         onHandModelReady(detector);
@@ -198,18 +195,9 @@ const HandPose = (() => {
     detector.detectStart(state.camera.video.elt || state.camera.video, onHandsEstimated);
   }
 
-  function detectHands() {
-    // detectStart ya maneja el loop automáticamente
-    // Esta función queda vacía pero la mantemos para compatibilidad
-  }
-
   function onHandsEstimated(results) {
-    console.log('🎯 Callback onHandsEstimated ejecutado:', results);
-    
     // results es un objeto con propiedades o un array según la versión
     let hands = Array.isArray(results) ? results : (results && results.hands) || [];
-
-    console.log('👐 Manos detectadas:', hands.length);
 
     if (!hands || hands.length === 0) {
       state.detection.hands = [];
@@ -222,22 +210,30 @@ const HandPose = (() => {
 
     // Procesar cada mano detectada
     const processedHands = detectedHands.map((hand) => {
-      // Extraer landmarks - pueden estar en diferentes formatos
-      const landmarks = (hand.landmarks || hand.keypoints || []).map((point) => {
+      // Extraer landmarks en píxeles - pueden estar en diferentes formatos
+      const landmarksPixels = (hand.landmarks || hand.keypoints || []).map((point) => {
         const x = Array.isArray(point) ? point[0] : point.x;
         const y = Array.isArray(point) ? point[1] : point.y;
-        const z = Array.isArray(point) ? point[2] : (point.z || 0);
-
-        return [
-          x, // Sin invertir - el CSS maneja el espejo visualmente
-          y, // Y sin cambios
-          z, // Confianza/profundidad
-        ];
+        return [x, y];
       });
 
+      // Normalizar coordenadas a rango [0, 1]
+      const landmarksNormalized = landmarksPixels.map((point) => [
+        point[0] / state.camera.width,
+        point[1] / state.camera.height,
+      ]);
+
+      // Calcular centro de la palma (promedio de los primeros 5 puntos)
+      const palmLandmarks = landmarksNormalized.slice(0, 5);
+      const palmCenter = [
+        palmLandmarks.reduce((sum, p) => sum + p[0], 0) / palmLandmarks.length,
+        palmLandmarks.reduce((sum, p) => sum + p[1], 0) / palmLandmarks.length,
+      ];
+
       return {
-        landmarks: landmarks,
-        handedness: hand.handedness || 'unknown',
+        side: hand.handedness || 'unknown',
+        landmarks: landmarksNormalized,
+        palmCenter: palmCenter,
         confidence: hand.confidence || 0,
       };
     });
@@ -249,9 +245,9 @@ const HandPose = (() => {
     // Actualizar FPS de detección
     updateDetectionFps();
 
-    // Emitir evento de manos detectadas
-    if (callbacks.onHandsDetected) {
-      callbacks.onHandsDetected({
+    // Emitir evento de actualización de manos
+    if (callbacks.onHandsUpdate) {
+      callbacks.onHandsUpdate({
         hands: processedHands,
         count: processedHands.length,
         fps: state.detection.detectionFps,
@@ -275,84 +271,76 @@ const HandPose = (() => {
   // SECCIÓN: DEBUG VISUAL
   // =========================================================================
   // Dibuja los 21 puntos clave y el esqueleto de las manos en el canvas.
+  // Usa coordenadas normalizadas del módulo de detección.
+  // SECCIÓN INDEPENDIENTE: puede eliminarse sin afectar la detección.
 
   function drawDebugHands(p) {
     if (!CONFIG.DEBUG) {
       return;
     }
 
-    const hands = state.detection.hands;
-    
-    if (hands.length > 0) {
-      console.log('🎨 Dibujando', hands.length, 'manos', 'p5 disponible:', p !== undefined);
-    }
-
     if (!p) {
-      console.error('❌ p5 no disponible en drawDebugHands');
       return;
     }
 
-    hands.forEach((hand) => {
-      // Definir conexiones del esqueleto de la mano (21 puntos)
-      const connections = [
-        // Pulgar
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 4],
-        // Índice
-        [0, 5],
-        [5, 6],
-        [6, 7],
-        [7, 8],
-        // Medio
-        [0, 9],
-        [9, 10],
-        [10, 11],
-        [11, 12],
-        // Anular
-        [0, 13],
-        [13, 14],
-        [14, 15],
-        [15, 16],
-        // Meñique
-        [0, 17],
-        [17, 18],
-        [18, 19],
-        [19, 20],
-        // Palma
-        [5, 9],
-        [9, 13],
-        [13, 17],
-      ];
+    const hands = state.detection.hands;
 
-      // Dibujar esqueleto (líneas)
+    // Definir conexiones del esqueleto de la mano (21 puntos)
+    const connections = [
+      // Pulgar
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      // Índice
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      // Medio
+      [0, 9], [9, 10], [10, 11], [11, 12],
+      // Anular
+      [0, 13], [13, 14], [14, 15], [15, 16],
+      // Meñique
+      [0, 17], [17, 18], [18, 19], [19, 20],
+      // Palma
+      [5, 9], [9, 13], [13, 17],
+    ];
+
+    hands.forEach((hand) => {
+      // Convertir coordenadas normalizadas (0-1) a píxeles
+      const landmarksPixels = hand.landmarks.map((point) => [
+        point[0] * state.camera.width,
+        point[1] * state.camera.height,
+      ]);
+
+      // Dibujar esqueleto (líneas verdes)
       p.stroke(0, 255, 0);
       p.strokeWeight(2);
       connections.forEach((connection) => {
-        const start = hand.landmarks[connection[0]];
-        const end = hand.landmarks[connection[1]];
+        const start = landmarksPixels[connection[0]];
+        const end = landmarksPixels[connection[1]];
 
         if (start && end) {
           p.line(start[0], start[1], end[0], end[1]);
         }
       });
 
-      // Dibujar puntos clave
+      // Dibujar puntos clave (círculos rojos)
       p.fill(255, 0, 0);
       p.noStroke();
-      hand.landmarks.forEach((point) => {
-        if (point) {
-          p.ellipse(point[0], point[1], 5);
-        }
+      landmarksPixels.forEach((point) => {
+        p.ellipse(point[0], point[1], 5);
       });
 
-      // Dibujar etiqueta de mano (izquierda/derecha)
-      const firstPoint = hand.landmarks[0];
-      if (firstPoint) {
+      // Dibujar centro de palma (círculo amarillo)
+      const palmCenterPixels = [
+        hand.palmCenter[0] * state.camera.width,
+        hand.palmCenter[1] * state.camera.height,
+      ];
+      p.fill(255, 255, 0);
+      p.ellipse(palmCenterPixels[0], palmCenterPixels[1], 8);
+
+      // Dibujar etiqueta de mano (izquierda/derecha en amarillo)
+      const firstPointPixels = landmarksPixels[0];
+      if (firstPointPixels) {
         p.fill(255, 255, 0);
         p.textSize(12);
-        p.text(hand.handedness, firstPoint[0] + 10, firstPoint[1] - 10);
+        p.text(hand.side, firstPointPixels[0] + 10, firstPointPixels[1] - 10);
       }
     });
   }
@@ -403,11 +391,44 @@ const HandPose = (() => {
         callbacks.onCameraError = callback;
       } else if (event === 'cameraActive') {
         callbacks.onCameraActive = callback;
-      } else if (event === 'handsDetected') {
-        callbacks.onHandsDetected = callback;
+      } else if (event === 'handsUpdate') {
+        callbacks.onHandsUpdate = callback;
       } else if (event === 'gestureDetected') {
         callbacks.onGestureDetected = callback;
       }
+    },
+
+    // Iniciar detección de manos
+    start: function () {
+      if (state.detection.model && state.detection.isModelReady) {
+        state.detection.model.detectStart(
+          state.camera.video.elt || state.camera.video,
+          onHandsEstimated
+        );
+        console.log('▶️ Detección de manos iniciada');
+      } else {
+        console.warn('⚠️ Modelo no listo para iniciar detección');
+      }
+    },
+
+    // Detener detección de manos
+    stop: function () {
+      if (state.detection.model && state.detection.isModelReady) {
+        state.detection.model.detectStop();
+        state.detection.hands = [];
+        state.hands = [];
+        console.log('⏹️ Detección de manos detenida');
+      }
+    },
+
+    // Obtener manos detectadas con coordenadas normalizadas
+    getHands: function () {
+      return state.hands.map((hand) => ({
+        side: hand.side,
+        landmarks: hand.landmarks,
+        palmCenter: hand.palmCenter,
+        confidence: hand.confidence,
+      }));
     },
 
     // Obtener acceso al canvas de p5 (por si el equipo necesita integrarlo)
