@@ -1,0 +1,814 @@
+/* ============================================================================
+ * TETRIS CON INTERACCIÓN — Estilos de la interfaz (Fase 2.2.1)
+ * ----------------------------------------------------------------------------
+ * Todo está prefijado con .tui- / --tui- y encapsulado bajo .tui-app para no
+ * filtrar estilos hacia otros módulos. No se define nada sobre body, html ni
+ * selectores globales.
+ * ==========================================================================*/
+
+/* ---------------------------------------------------------------- base ---- */
+
+.tui-app,
+.tui-app *,
+.tui-app *::before,
+.tui-app *::after {
+    box-sizing: border-box;
+}
+
+.tui-app {
+    /* Identidad visual (Fase 2.1) */
+    --tui-cosmos: #0A0D16;
+    --tui-blue: #2F55F5;
+    --tui-lime: #39E34A;
+    --tui-fuchsia: #FF2DAA;
+    --tui-tangerine: #FF5622;
+    --tui-yellow: #FFF20A;
+
+    /* Derivados */
+    --tui-ink: #E8ECFF;
+    --tui-ink-dim: rgba(232, 236, 255, 0.55);
+    --tui-line: rgba(47, 85, 245, 0.35);
+    --tui-panel: rgba(10, 13, 22, 0.72);
+    --tui-panel-solid: #0D1120;
+    --tui-void: #05070F;
+
+    --tui-accent: var(--tui-blue);
+    --tui-bg-scenario: #0B1033;
+    --tui-glow: 0 0 14px rgba(47, 85, 245, 0.55);
+
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--tui-cosmos);
+    color: var(--tui-ink);
+    font-family: "Cascadia Mono", Consolas, "Courier New", ui-monospace, monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+}
+
+.tui-app[data-tui-scenario="teclado"] {
+    --tui-accent: var(--tui-blue);
+    --tui-bg-scenario: #0B1033;
+    --tui-glow: 0 0 14px rgba(47, 85, 245, 0.55);
+}
+
+.tui-app[data-tui-scenario="edificio"] {
+    --tui-accent: var(--tui-tangerine);
+    --tui-bg-scenario: #2A0C06;
+    --tui-glow: 0 0 14px rgba(255, 86, 34, 0.55);
+}
+
+/* Grilla de fondo, solo decorativa. */
+.tui-app::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(to right, rgba(47, 85, 245, 0.1) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(47, 85, 245, 0.1) 1px, transparent 1px);
+    background-size: 64px 64px;
+    -webkit-mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 78%);
+    mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 78%);
+}
+
+/* Efecto CRT: líneas de barrido + viñeta. */
+.tui-crt {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    opacity: 0.35;
+    mix-blend-mode: multiply;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0 2px,
+        rgba(0, 0, 0, 0.28) 2px 4px
+    );
+}
+
+.tui-vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 49;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.65) 100%);
+}
+
+/* -------------------------------------------------------------- pantallas - */
+
+.tui-screen {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: none;
+    flex-direction: column;
+    padding: clamp(18px, 3vw, 40px);
+}
+
+.tui-app[data-tui-screen="start"] .tui-screen--start,
+.tui-app[data-tui-screen="scenarios"] .tui-screen--scenarios {
+    display: flex;
+}
+
+.tui-app[data-tui-screen="game"] .tui-screen--game,
+.tui-app[data-tui-screen="paused"] .tui-screen--game {
+    display: flex;
+}
+
+.tui-app[data-tui-screen="paused"] .tui-pause {
+    display: grid;
+}
+
+/* ---------------------------------------------------------------- tipografía */
+
+.tui-kicker {
+    margin: 0;
+    font-size: 11px;
+    letter-spacing: 0.42em;
+    color: var(--tui-lime);
+    text-shadow: 0 0 10px rgba(57, 227, 74, 0.55);
+}
+
+.tui-title {
+    margin: 0;
+    font-size: clamp(18px, 3vw, 30px);
+    letter-spacing: 0.2em;
+    color: var(--tui-ink);
+    text-shadow: 0 0 16px var(--tui-accent);
+}
+
+/* ------------------------------------------------------------- botones ----- */
+
+.tui-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 220px;
+    padding: 14px 22px;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--tui-ink);
+    background: rgba(10, 13, 22, 0.6);
+    border: 2px solid var(--tui-line);
+    border-radius: 0;
+    cursor: pointer;
+    transition: transform 0.12s ease, background-color 0.18s ease,
+        border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+
+.tui-btn:hover {
+    border-color: var(--tui-accent);
+    color: #fff;
+    box-shadow: var(--tui-glow);
+    transform: translateY(-2px);
+}
+
+.tui-btn:active {
+    transform: translateY(1px);
+    box-shadow: none;
+}
+
+.tui-btn:focus-visible {
+    outline: 2px solid var(--tui-lime);
+    outline-offset: 3px;
+}
+
+.tui-btn--primary {
+    background: var(--tui-accent);
+    border-color: var(--tui-accent);
+    color: var(--tui-void);
+    font-weight: 700;
+    box-shadow: var(--tui-glow);
+}
+
+.tui-btn--primary:hover {
+    color: var(--tui-void);
+    box-shadow: 0 0 26px var(--tui-accent);
+}
+
+.tui-btn--sm {
+    min-width: 0;
+    padding: 8px 16px;
+    font-size: 10px;
+}
+
+/* ------------------------------------------------------------- inicio ----- */
+
+.tui-screen--start {
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 42%, #12204D 0%, var(--tui-cosmos) 62%);
+}
+
+.tui-start {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(18px, 3vh, 34px);
+    text-align: center;
+}
+
+.tui-start__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tui-start__hint {
+    margin: 0;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55em;
+    margin: 0;
+    font-size: clamp(38px, 9vw, 96px);
+    line-height: 0.9;
+    letter-spacing: 0.14em;
+}
+
+.tui-logo__word {
+    display: flex;
+    gap: 0.04em;
+}
+
+.tui-logo__letter {
+    display: inline-block;
+    text-shadow: 0 0 6px currentColor, 0 0 22px currentColor, 4px 4px 0 rgba(5, 7, 15, 0.9);
+    animation: tui-bob 3.2s ease-in-out infinite;
+}
+
+.tui-logo__letter:nth-child(1) { color: var(--tui-blue); animation-delay: 0s; }
+.tui-logo__letter:nth-child(2) { color: var(--tui-lime); animation-delay: 0.12s; }
+.tui-logo__letter:nth-child(3) { color: var(--tui-fuchsia); animation-delay: 0.24s; }
+.tui-logo__letter:nth-child(4) { color: var(--tui-tangerine); animation-delay: 0.36s; }
+.tui-logo__letter:nth-child(5) { color: var(--tui-yellow); animation-delay: 0.48s; }
+.tui-logo__letter:nth-child(6) { color: var(--tui-blue); animation-delay: 0.6s; }
+
+.tui-logo__sub {
+    font-size: clamp(9px, 1.3vw, 13px);
+    letter-spacing: 0.5em;
+    color: var(--tui-ink-dim);
+}
+
+/* Decoración: celdas flotantes. */
+.tui-deco {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.tui-deco__cell {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: currentColor;
+    opacity: 0.5;
+    box-shadow: 0 0 14px currentColor;
+    animation: tui-float 9s linear infinite;
+}
+
+.tui-deco__cell:nth-child(1) { left: 8%;  top: 16%; color: var(--tui-blue);      animation-delay: -1s; }
+.tui-deco__cell:nth-child(2) { left: 18%; top: 72%; color: var(--tui-lime);      animation-delay: -3.5s; }
+.tui-deco__cell:nth-child(3) { left: 84%; top: 22%; color: var(--tui-fuchsia);   animation-delay: -5.2s; }
+.tui-deco__cell:nth-child(4) { left: 92%; top: 64%; color: var(--tui-yellow);    animation-delay: -2.4s; }
+.tui-deco__cell:nth-child(5) { left: 30%; top: 8%;  color: var(--tui-tangerine); animation-delay: -6.8s; }
+.tui-deco__cell:nth-child(6) { left: 70%; top: 84%; color: var(--tui-blue);      animation-delay: -4.1s; }
+.tui-deco__cell:nth-child(7) { left: 4%;  top: 46%; color: var(--tui-fuchsia);   animation-delay: -7.6s; }
+.tui-deco__cell:nth-child(8) { left: 96%; top: 40%; color: var(--tui-lime);      animation-delay: -0.6s; }
+
+/* --------------------------------------------------- selección de escenario */
+
+.tui-screen--scenarios {
+    align-items: center;
+    justify-content: center;
+}
+
+.tui-select {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(16px, 3vh, 28px);
+    width: min(820px, 100%);
+}
+
+.tui-scenarios {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(14px, 2vw, 26px);
+    width: 100%;
+}
+
+.tui-scenario {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    text-align: left;
+    font: inherit;
+    color: var(--tui-ink);
+    background: var(--tui-panel);
+    border: 2px solid var(--tui-line);
+    border-radius: 0;
+    cursor: pointer;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.tui-scenario:hover {
+    border-color: var(--tui-accent);
+    transform: translateY(-3px);
+}
+
+.tui-scenario:focus-visible {
+    outline: 2px solid var(--tui-lime);
+    outline-offset: 3px;
+}
+
+.tui-scenario--selected {
+    border-color: var(--tui-accent);
+    box-shadow: 0 0 0 2px var(--tui-accent), var(--tui-glow);
+}
+
+.tui-scenario__preview {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+.tui-scenario[data-tui-scenario-id="teclado"] .tui-scenario__preview {
+    background: #0B1033;
+    box-shadow: inset 0 0 60px rgba(47, 85, 245, 0.55);
+}
+
+.tui-scenario[data-tui-scenario-id="edificio"] .tui-scenario__preview {
+    background: #2A0C06;
+    box-shadow: inset 0 0 60px rgba(255, 86, 34, 0.5);
+}
+
+.tui-scenario[data-tui-scenario-id="teclado"].tui-scenario--selected .tui-scenario__preview {
+    box-shadow: inset 0 0 60px rgba(47, 85, 245, 0.55), 0 0 24px rgba(47, 85, 245, 0.6);
+}
+
+.tui-scenario[data-tui-scenario-id="edificio"].tui-scenario--selected .tui-scenario__preview {
+    box-shadow: inset 0 0 60px rgba(255, 86, 34, 0.5), 0 0 24px rgba(255, 86, 34, 0.6);
+}
+
+.tui-scenario__index {
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-scenario__name {
+    font-size: clamp(14px, 1.6vw, 18px);
+    letter-spacing: 0.16em;
+}
+
+.tui-scenario__badge {
+    display: none;
+    align-self: flex-start;
+    padding: 3px 8px;
+    font-size: 8px;
+    letter-spacing: 0.24em;
+    color: var(--tui-void);
+    background: var(--tui-accent);
+}
+
+.tui-scenario--selected .tui-scenario__badge {
+    display: inline-block;
+    animation: tui-pulse 1.8s ease-in-out infinite;
+}
+
+.tui-select__actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* ------------------------------------------------------------- partida ---- */
+
+.tui-screen--game {
+    align-items: center;
+    justify-content: center;
+    background:
+        radial-gradient(circle at 50% 30%, rgba(47, 85, 245, 0.16), transparent 60%),
+        var(--tui-bg-scenario);
+    transition: background-color 0.4s ease;
+}
+
+/* Carcasa: imita una consola física. */
+.tui-console {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(190px, 22vw, 250px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "bar    bar"
+        "screen panel"
+        "base   panel";
+    gap: clamp(10px, 1.4vw, 16px);
+    width: min(1200px, 100%);
+    padding: clamp(12px, 1.6vw, 20px);
+    background: linear-gradient(180deg, #171B30 0%, #0D1020 55%, #080A12 100%);
+    border: 2px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -3px 0 rgba(0, 0, 0, 0.85),
+        0 26px 70px rgba(0, 0, 0, 0.8);
+}
+
+/* Barra superior de la carcasa. */
+.tui-console__bar {
+    grid-area: bar;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 2px 4px 10px;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.07);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+}
+
+.tui-console__brand {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    min-width: 0;
+}
+
+.tui-console__logo {
+    font-size: 16px;
+    letter-spacing: 0.32em;
+    color: var(--tui-yellow);
+    text-shadow: 0 0 12px rgba(255, 242, 10, 0.55);
+}
+
+.tui-console__scenario {
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    color: var(--tui-accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Pantalla: bisel + tablero. */
+.tui-console__screen {
+    grid-area: screen;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    padding: clamp(8px, 1.2vw, 16px);
+    background: #04060C;
+    border: 2px solid #000;
+    box-shadow:
+        inset 0 0 50px rgba(0, 0, 0, 0.95),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.tui-console__bezel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.tui-console__tag {
+    font-size: 8px;
+    letter-spacing: 0.32em;
+    color: var(--tui-ink-dim);
+    opacity: 0.7;
+}
+
+.tui-board {
+    height: min(58dvh, 560px);
+    aspect-ratio: 1 / 2;
+    max-width: 100%;
+    background-color: var(--tui-void);
+    background-image:
+        linear-gradient(to right, rgba(47, 85, 245, 0.16) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(47, 85, 245, 0.16) 1px, transparent 1px);
+    background-size: 10% 5%;
+    border: 3px solid var(--tui-accent);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), var(--tui-glow),
+        inset 0 0 60px rgba(0, 0, 0, 0.9);
+}
+
+/* Preparado para recibir el canvas de p5 sin conocer su tamaño. */
+.tui-board > *,
+.tui-next > * {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Panel derecho de la consola. */
+.tui-console__panel {
+    grid-area: panel;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    padding: clamp(8px, 1vw, 14px);
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.25));
+    border: 2px solid rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.tui-console__score {
+    padding: 10px 12px;
+    background: #04060C;
+    border: 2px solid var(--tui-line);
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.9);
+}
+
+.tui-console__score-label {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-console__score-value {
+    display: block;
+    margin-top: 4px;
+    font-size: clamp(20px, 2.6vw, 28px);
+    letter-spacing: 0.1em;
+    color: var(--tui-lime);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    text-shadow: 0 0 14px rgba(57, 227, 74, 0.65);
+}
+
+.tui-panel {
+    padding: 10px;
+    background: var(--tui-panel);
+    border: 2px solid var(--tui-line);
+}
+
+.tui-panel__title {
+    margin: 0 0 8px;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-next {
+    aspect-ratio: 1 / 1;
+    background-color: var(--tui-void);
+    background-image:
+        linear-gradient(to right, rgba(47, 85, 245, 0.14) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(47, 85, 245, 0.14) 1px, transparent 1px);
+    background-size: 25% 25%;
+    border: 2px dashed rgba(47, 85, 245, 0.35);
+}
+
+/* Espacio reservado para la cámara de handpose (inferior derecha). */
+.tui-camera {
+    position: relative;
+    margin-top: auto;
+}
+
+.tui-camera__slot {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: var(--tui-void);
+    border: 2px solid var(--tui-accent);
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
+}
+
+.tui-camera__slot > * {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.tui-camera__placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.tui-camera__slot:not(:empty) ~ .tui-camera__placeholder {
+    display: none;
+}
+
+.tui-camera__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--tui-lime);
+    box-shadow: 0 0 10px var(--tui-lime);
+    animation: tui-blink 1.6s steps(2, end) infinite;
+}
+
+.tui-camera__label {
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--tui-accent);
+}
+
+.tui-camera__hint {
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    color: var(--tui-ink-dim);
+}
+
+/* Base de la carcasa: solo bajo la pantalla, nunca bajo el panel derecho. */
+.tui-console__base {
+    grid-area: base;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.tui-console__vent {
+    flex: 1 1 auto;
+    height: 16px;
+    opacity: 0.45;
+    background: repeating-linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.16) 0 2px,
+        transparent 2px 9px
+    );
+}
+
+.tui-console__led {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--tui-lime);
+    box-shadow: 0 0 10px var(--tui-lime);
+    animation: tui-blink 1.8s steps(2, end) infinite;
+}
+
+.tui-console__base-label {
+    flex: 0 0 auto;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+/* --------------------------------------------------------------- pausa ---- */
+
+.tui-pause {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: none;
+    place-items: center;
+    padding: 20px;
+    background: rgba(5, 7, 15, 0.72);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+}
+
+.tui-pause__panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    width: min(420px, 100%);
+    padding: clamp(20px, 4vh, 36px);
+    text-align: center;
+    background: var(--tui-panel-solid);
+    border: 2px solid var(--tui-accent);
+    box-shadow: 0 0 40px var(--tui-accent), inset 0 0 40px rgba(0, 0, 0, 0.8);
+    animation: tui-pop 0.18s ease-out;
+}
+
+.tui-pause__hint {
+    margin: 0;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-pause__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    margin-top: 6px;
+}
+
+.tui-pause__actions .tui-btn {
+    width: 100%;
+    min-width: 0;
+}
+
+/* ------------------------------------------------------------ animaciones -- */
+
+@keyframes tui-bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+}
+
+@keyframes tui-float {
+    0%   { transform: translateY(0) rotate(0deg); }
+    50%  { transform: translateY(-22px) rotate(90deg); }
+    100% { transform: translateY(0) rotate(180deg); }
+}
+
+@keyframes tui-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+}
+
+@keyframes tui-blink {
+    0%, 49%   { opacity: 1; }
+    50%, 100% { opacity: 0.15; }
+}
+
+@keyframes tui-pop {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* ------------------------------------------------------------- responsive -- */
+
+@media (max-width: 900px) {
+    .tui-scenarios {
+        grid-template-columns: 1fr;
+    }
+
+    .tui-console {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto;
+        grid-template-areas:
+            "bar"
+            "screen"
+            "panel"
+            "base";
+    }
+
+    .tui-board {
+        height: min(46dvh, 420px);
+    }
+
+    .tui-console__panel {
+        flex-direction: row;
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    .tui-console__score {
+        flex: 1 1 40%;
+    }
+
+    .tui-panel {
+        flex: 1 1 40%;
+    }
+
+    .tui-camera {
+        flex: 0 0 40%;
+        margin-top: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tui-app *,
+    .tui-app *::before,
+    .tui-app *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+}
