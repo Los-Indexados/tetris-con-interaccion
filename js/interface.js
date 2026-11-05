@@ -1,5 +1,5 @@
 /* ============================================================================
- * TETRIS CON INTERACCIÓN — Módulo de interfaz (Fase 2.2.1)
+ * TETRIS CON INTERACCIÓN — Módulo de interfaz (Fase 2.2.2)
  * ----------------------------------------------------------------------------
  * Módulo aislado dentro de un IIFE. Expone UN solo global: window.TetrisUI.
  * Prefijo exclusivo en todo lo que toca el DOM:
@@ -14,19 +14,43 @@
  *   TetrisUI.setScenario(id)             'teclado' | 'edificio'
  *   TetrisUI.getScenario()               Escenario seleccionado
  *   TetrisUI.setStats({ score: 1200 })  Puntuación (único indicador de partida)
- *   TetrisUI.trigger('pause')            Dispara una acción como si fuera un clic
- *   TetrisUI.trigger('select:edificio')  Ídem, con parámetro de escenario
- *   TetrisUI.on('game:start', fn)        Suscripción a eventos; devuelve unsubscribe
- *   TetrisUI.getBoardMount()             Nodo reservado para el tablero (p5/modelo)
+ *   TetrisUI.getButtons()                Lista { id, control, action, disabled }
+ *   TetrisUI.on(evento, fn)              Suscripción; devuelve unsubscribe
+ *   TetrisUI.getBoardMount()             Nodo reservado para el tablero (p5)
  *   TetrisUI.getCameraMount()            Nodo reservado para la cámara (handpose)
  *   TetrisUI.getNextPieceMount()         Nodo reservado para la pieza siguiente
+ *   TetrisUI.trigger(x)                  Compatibilidad: id o 'accion:param'
+ *
+ * --- API para handpose.js (activación externa, sin tocar el DOM) -----------
+ *   TetrisUI.press(id)       Solo estado visual de presión (no ejecuta acción)
+ *   TetrisUI.release(id)     Vuelve al estado normal y permite reactivar
+ *   TetrisUI.activate(id)    Presión visual + acción lógica, una sola vez
+ *   TetrisUI.pulse(id)       activate + release automático a los 180 ms
+ *
+ * Los ids son estables y únicos (ver getButtons()): 'start-game',
+ * 'open-scenarios', 'select-teclado', 'select-edificio', 'confirm-scenario',
+ * 'back-menu', 'pause', 'resume', 'restart', 'menu', 'control-up',
+ * 'control-down', 'control-left', 'control-right', 'control-a', 'control-b'.
+ *
+ * Reglas de deduplicación:
+ *   - Una misma señal ejecuta la acción una sola vez; repetirla exige release().
+ *   - activate() se ignora si el botón está presionado por el puntero: en ese
+ *     caso la acción la ejecuta el clic, nunca dos veces.
+ *   - press() y activate() sobre un botón deshabilitado devuelven false.
+ *   - pointerdown marca la presión; pointerup la libera; click ejecuta la
+ *     acción una única vez.
+ *   - Al cambiar de pantalla se liberan todas las presiones pendientes.
+ *
+ * Los controles de juego (cruceta, A, B) NO ejecutan lógica: emiten
+ * tui:control:<id> para que el controlador decida qué hacer.
  *
  * Eventos emitidos (CustomEvent sobre el nodo raíz, con burbujeo):
  *   tui:ready, tui:screen:change, tui:scenario:change, tui:game:start,
- *   tui:game:pause, tui:game:resume, tui:game:restart, tui:game:menu
+ *   tui:game:pause, tui:game:resume, tui:game:restart, tui:game:menu,
+ *   tui:control:up|down|left|right|a|b
  *
- * Este módulo NO dibuja con p5.js y NO ejecuta lógica de juego: solo estructura,
- * estado visual y eventos de interacción.
+ * Este módulo NO dibuja con p5.js, NO reconoce gestos y NO ejecuta lógica de
+ * juego: solo estructura, estado visual y eventos de interacción.
  * ==========================================================================*/
 
 (function () {
@@ -202,7 +226,6 @@
     scenarioName.setAttribute('data-tui-scenario-name', '');
     brand.appendChild(scenarioName);
     bar.appendChild(brand);
-    bar.appendChild(actionButton('Pausa', 'pause', 'ghost tui-btn--sm'));
     consoleBox.appendChild(bar);
 
     /* Pantalla: bisel + tablero (lo dibuja el juego, aquí solo se reserva). */
@@ -249,14 +272,38 @@
 
     consoleBox.appendChild(panel);
 
-    /* Base de la carcasa: espacio reservado bajo la pantalla, sin invadir
-       el panel derecho. No contiene controles ni lógica. */
-    var base = el('footer', 'tui-console__base');
-    base.setAttribute('data-tui-base', '');
-    base.appendChild(el('span', 'tui-console__vent'));
-    base.appendChild(el('span', 'tui-console__led'));
-    base.appendChild(el('span', 'tui-console__base-label', 'P1'));
-    consoleBox.appendChild(base);
+    /* Deck de controles: cruceta + A/B + pausa, como una consola real.
+       No ejecuta lógica de juego: cada control emite tui:control:<id>. */
+    var deck = el('footer', 'tui-console__deck');
+    deck.setAttribute('data-tui-deck', '');
+
+    var pad = el('div', 'tui-pad');
+    pad.setAttribute('role', 'group');
+    pad.setAttribute('aria-label', 'Cruceta');
+    pad.appendChild(controlButton('up', '▲', 'tui-pad__btn tui-pad__btn--up', 'control-up', 'Arriba'));
+    pad.appendChild(controlButton('left', '◀', 'tui-pad__btn tui-pad__btn--left', 'control-left', 'Izquierda'));
+    var hub = el('span', 'tui-pad__hub');
+    hub.setAttribute('aria-hidden', 'true');
+    pad.appendChild(hub);
+    pad.appendChild(controlButton('right', '▶', 'tui-pad__btn tui-pad__btn--right', 'control-right', 'Derecha'));
+    pad.appendChild(controlButton('down', '▼', 'tui-pad__btn tui-pad__btn--down', 'control-down', 'Abajo'));
+    deck.appendChild(pad);
+
+    var actions = el('div', 'tui-deck__actions');
+    actions.appendChild(controlButton('b', 'B', 'tui-btn--round', 'control-b', 'Botón B'));
+    actions.appendChild(controlButton('a', 'A', 'tui-btn--round', 'control-a', 'Botón A'));
+    deck.appendChild(actions);
+
+    deck.appendChild(el('span', 'tui-deck__spacer'));
+    deck.appendChild(actionButton('Pausa', 'pause', 'start', 'pause'));
+
+    var meta = el('div', 'tui-deck__meta');
+    meta.appendChild(el('span', 'tui-console__vent'));
+    meta.appendChild(el('span', 'tui-console__led'));
+    meta.appendChild(el('span', 'tui-console__base-label', 'P1'));
+    deck.appendChild(meta);
+
+    consoleBox.appendChild(deck);
 
     section.appendChild(consoleBox);
     return section;
@@ -322,9 +369,10 @@
 
     state.screen = screen;
     root.setAttribute('data-tui-screen', screen);
+    releaseAll();
 
     if (screen === 'paused') {
-      var resume = root.querySelector('[data-tui-action="resume"]');
+      var resume = root.querySelector('[data-tui-button="resume"]');
       if (resume) resume.focus({ preventScroll: true });
     }
 
@@ -401,21 +449,123 @@
     }
   }
 
+  /* --------------------------------------------------------------- botones -- */
+
+  /* Estado de presión por botón: { source: 'pointer' | 'external', fired }.
+     'fired' distingue la activación visual de la acción lógica ya ejecutada,
+     y evita repetir la acción mientras la misma señal siga activa. */
+  var pressed = Object.create(null);
+
+  function findButton(id) {
+    if (!root || typeof id !== 'string') return null;
+    var list = root.querySelectorAll('[data-tui-button]');
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].getAttribute('data-tui-button') === id) return list[i];
+    }
+    return null;
+  }
+
+  function releaseAll() {
+    if (!root) return;
+    var list = root.querySelectorAll('[data-tui-pressed="true"]');
+    for (var i = 0; i < list.length; i++) list[i].removeAttribute('data-tui-pressed');
+    pressed = Object.create(null);
+  }
+
+  /* Señal externa sin acción lógica: solo el estado visual. */
+  function press(id, source) {
+    var button = findButton(id);
+    if (!button || button.disabled || pressed[id]) return false;
+    button.setAttribute('data-tui-pressed', 'true');
+    pressed[id] = { source: source || 'external', fired: false };
+    return true;
+  }
+
+  /* Fin de la señal: el botón vuelve a su estado normal. */
+  function release(id) {
+    var button = findButton(id);
+    if (!button || !pressed[id]) return false;
+    button.removeAttribute('data-tui-pressed');
+    delete pressed[id];
+    return true;
+  }
+
+  /* Señal externa completa: presión visual + acción lógica, una sola vez.
+     - Si el botón ya está presionado por puntero, se ignora: el clic del
+       puntero ejecutará la acción y no debe duplicarse.
+     - Si la presión vino de una señal externa (press()), la acción se ejecuta
+       una vez; repetirla exige release() previo. */
+  function activate(id) {
+    var button = findButton(id);
+    if (!button || button.disabled) return false;
+
+    var current = pressed[id];
+    if (current) {
+      if (current.source === 'pointer' || current.fired) return false;
+      current.fired = true;
+      runButton(button);
+      return true;
+    }
+
+    if (!press(id, 'external')) return false;
+    pressed[id].fired = true;
+    runButton(button);
+    return true;
+  }
+
+  /* Igual que activate, con liberación automática para gestos puntuales. */
+  function pulse(id) {
+    if (!activate(id)) return false;
+    window.setTimeout(function () {
+      release(id);
+    }, 180);
+    return true;
+  }
+
+  function runButton(button) {
+    var control = button.getAttribute('data-tui-control');
+    if (control) {
+      emit('control:' + control, { button: button.getAttribute('data-tui-button') });
+      return;
+    }
+    var action = button.getAttribute('data-tui-action');
+    if (action) handleAction(action, button.getAttribute('data-tui-scenario-id'));
+  }
+
+  function onPointerDown(event) {
+    var target = event.target;
+    if (!target || typeof target.closest !== 'function') return;
+
+    var button = target.closest('[data-tui-button]');
+    if (!button || !root.contains(button) || button.disabled) return;
+
+    press(button.getAttribute('data-tui-button'), 'pointer');
+  }
+
+  function onPointerUp() {
+    Object.keys(pressed).forEach(function (id) {
+      if (pressed[id].source === 'pointer') release(id);
+    });
+  }
+
   function onClick(event) {
     var target = event.target;
     if (!target || typeof target.closest !== 'function') return;
 
-    var button = target.closest('[data-tui-action]');
-    if (!button || !root.contains(button)) return;
+    var button = target.closest('[data-tui-button]');
+    if (!button || !root.contains(button) || button.disabled) return;
 
-    handleAction(button.getAttribute('data-tui-action'), button.getAttribute('data-tui-scenario-id'));
+    runButton(button);
   }
 
-  /* Activación externa (handpose): simula el clic de una acción. */
-  function trigger(action) {
-    if (typeof action !== 'string' || !ensure()) return false;
+  /* Compatibilidad: acepta un id de botón ('pause', 'control-a') o el formato
+     anterior de acción ('select:edificio'). */
+  function trigger(value) {
+    if (typeof value !== 'string' || !ensure()) return false;
 
-    var parts = action.split(':');
+    if (findButton(value)) return activate(value);
+
+    var parts = value.split(':');
     var name = parts[0];
     var param = parts[1] || null;
 
@@ -424,9 +574,7 @@
       var candidate = candidates[i];
       if (candidate.getAttribute('data-tui-action') !== name) continue;
       if (param && candidate.getAttribute('data-tui-scenario-id') !== param) continue;
-      if (candidate.disabled) return false;
-      candidate.click();
-      return true;
+      return activate(candidate.getAttribute('data-tui-button'));
     }
     return false;
   }
@@ -453,6 +601,9 @@
     root.appendChild(buildPause());
 
     root.addEventListener('click', onClick);
+    root.addEventListener('pointerdown', onPointerDown);
+    root.addEventListener('pointerup', onPointerUp);
+    root.addEventListener('pointercancel', onPointerUp);
     document.body.appendChild(root);
 
     syncScenarioUI();
@@ -474,7 +625,7 @@
   }
 
   var api = {
-    version: '2.2.1',
+    version: '2.2.2',
     scenarios: SCENARIOS.map(function (scenario) {
       return { id: scenario.id, label: scenario.label };
     }),
@@ -489,6 +640,24 @@
     },
     setStats: setStats,
     trigger: trigger,
+    press: press,
+    release: release,
+    activate: activate,
+    pulse: pulse,
+    getButtons: function () {
+      if (!ensure()) return [];
+      var out = [];
+      var list = root.querySelectorAll('[data-tui-button]');
+      for (var i = 0; i < list.length; i++) {
+        out.push({
+          id: list[i].getAttribute('data-tui-button'),
+          control: list[i].getAttribute('data-tui-control') || null,
+          action: list[i].getAttribute('data-tui-action') || null,
+          disabled: list[i].disabled === true
+        });
+      }
+      return out;
+    },
     on: on,
     off: off,
     getRoot: function () {
