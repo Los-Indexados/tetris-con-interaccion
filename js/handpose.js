@@ -7,6 +7,23 @@
 // ============================================================================
 const CONFIG = {
   DEBUG: false, // Cambiar a true para ver esqueleto y puntos de las manos
+  
+  // Configuración de suavizado
+  SMOOTHING_ENABLED: true, // Activar/desactivar suavizado
+  SMOOTHING_METHOD: 'oneEuro', // 'ema' o 'oneEuro'
+  
+  // Parámetros EMA (Media Móvil Exponencial)
+  EMA_ALPHA: 0.5, // Factor de suavizado (0-1, más alto = menos suavizado)
+  
+  // Parámetros One Euro
+  ONE_EURO_MIN_CUTOFF: 0.7, // Frecuencia de corte mínima (Hz) - más bajo = más fluido
+  ONE_EURO_BETA: 0.05, // Parámetro de amortiguación de derivada - más alto = más rápido
+  
+  // Zona muerta (deadzone)
+  DEADZONE_THRESHOLD: 0.002, // Umbral de variación mínima (normalizado 0-1) - más bajo = más sensible
+  
+  // Tolerancia de desaparición de mano
+  HAND_DISAPPEARANCE_TOLERANCE_MS: 200, // Milisegundos para tolerancia
 };
 
 // ============================================================================
@@ -161,59 +178,114 @@ const HandPose = (() => {
   // Carga el modelo handPose de ml5.js y detecta manos en tiempo real.
   // Limita a 2 manos máximo, normaliza coordenadas (0-1) e incluye centro de palma.
 
-  function initHandDetection() {
-    // Esperar a que ml5.js esté disponible y completamente cargado
-    if (typeof ml5 === 'undefined' || !ml5.handPose) {
+  let modelLoadRetries = 0;
+  const MAX_MODEL_LOAD_RETRIES = 3;
+
+  async function initHandDetection() {
+    // Esperar a que TensorFlow.js esté disponible
+    if (typeof tf === 'undefined' || typeof handPoseDetection === 'undefined') {
+      console.log('⏳ Esperando TensorFlow.js...');
+      setTimeout(initHandDetection, 500);
+      return;
+    }
+
+    // Verificar que el video esté listo
+    if (!state.camera.video || !state.camera.isActive) {
+      console.log('⏳ Esperando video...');
       setTimeout(initHandDetection, 500);
       return;
     }
 
     try {
-      // ml5.js v1.4.0 devuelve una Promesa
-      ml5.handPose(state.camera.video.elt || state.camera.video).then((detector) => {
-        onHandModelReady(detector);
-      }).catch((error) => {
-        console.error('❌ Error al cargar modelo handPose:', error);
-      });
+      console.log('🚀 Cargando modelo handPose con TensorFlow.js...');
+      
+      // Usar el detector de hand-pose-detection
+      const detector = await handPoseDetection.createDetector(
+        handPoseDetection.SupportedModels.MediaPipeHands,
+        {
+          runtime: 'tfjs',
+          modelType: 'full',
+        }
+      );
+
+      onHandModelReady(null, detector);
     } catch (error) {
-      console.error('❌ Error al cargar modelo handPose: ' + error.message);
+      console.error('❌ Error al cargar modelo handPose:', error.message);
+      
+      if (modelLoadRetries < MAX_MODEL_LOAD_RETRIES) {
+        modelLoadRetries++;
+        setTimeout(initHandDetection, 2000);
+      } else {
+        console.error('❌ Falló cargar modelo después de ' + MAX_MODEL_LOAD_RETRIES + ' intentos');
+      }
     }
   }
 
-  function onHandModelReady(detector) {
+  function onHandModelReady(error, detector) {
+    if (error) {
+      console.error('❌ Error al cargar modelo:', error);
+      return;
+    }
+
     if (!detector) {
       console.error('❌ Detector no disponible');
       return;
     }
 
+    modelLoadRetries = 0; // Reset on success
     state.detection.model = detector;
     state.detection.isModelReady = true;
 
     console.log('✅ Modelo handPose cargado y listo');
 
-    // Iniciar detección continua con detectStart
-    detector.detectStart(state.camera.video.elt || state.camera.video, onHandsEstimated);
+    try {
+      // Iniciar loop de detección
+      detectHands();
+    } catch (error) {
+      console.error('❌ Error al iniciar detección:', error.message);
+    }
   }
 
-  function onHandsEstimated(results) {
-    // results es un objeto con propiedades o un array según la versión
-    let hands = Array.isArray(results) ? results : (results && results.hands) || [];
+  async function detectHands() {
+    if (!state.detection.model || !state.detection.isModelReady) {
+      return;
+    }
 
-    if (!hands || hands.length === 0) {
+    try {
+      // hand-pose-detection: detectHands devuelve Promesa
+      const videoSource = state.camera.video.elt || state.camera.video;
+      const hands = await state.detection.model.estimateHands(videoSource, {
+        flipHorizontal: false,
+      });
+
+      onHandsEstimated(hands);
+    } catch (error) {
+      console.error('Error en detección:', error.message);
+    }
+
+    // Continuar en el siguiente frame
+    requestAnimationFrame(detectHands);
+  }
+
+  function onHandsEstimated(hands) {
+    // hand-pose-detection devuelve array de manos
+    let handsList = Array.isArray(hands) ? hands : [];
+
+    if (!handsList || handsList.length === 0) {
       state.detection.hands = [];
       state.hands = [];
       return;
     }
 
     // Limitar a máximo 2 manos
-    const detectedHands = hands.slice(0, state.detection.maxHands);
+    const detectedHands = handsList.slice(0, state.detection.maxHands);
 
     // Procesar cada mano detectada
     const processedHands = detectedHands.map((hand) => {
-      // Extraer landmarks en píxeles - pueden estar en diferentes formatos
-      const landmarksPixels = (hand.landmarks || hand.keypoints || []).map((point) => {
-        const x = Array.isArray(point) ? point[0] : point.x;
-        const y = Array.isArray(point) ? point[1] : point.y;
+      // hand-pose-detection devuelve keypoints como array de objetos {x, y, z, name}
+      const landmarksPixels = (hand.keypoints || []).map((point) => {
+        const x = point.x || 0;
+        const y = point.y || 0;
         return [x, y];
       });
 
@@ -234,13 +306,20 @@ const HandPose = (() => {
         side: hand.handedness || 'unknown',
         landmarks: landmarksNormalized,
         palmCenter: palmCenter,
-        confidence: hand.confidence || 0,
+        confidence: hand.score || 0,
       };
     });
 
-    // Guardar manos detectadas
-    state.detection.hands = processedHands;
-    state.hands = processedHands;
+    // Aplicar suavizado
+    const currentTime = Date.now();
+    const smoothedHands = applySmoothingFilter(processedHands, currentTime);
+
+    // Manejar desaparición de manos
+    handleHandDisappearance(currentTime);
+
+    // Guardar manos detectadas (ya suavizadas)
+    state.detection.hands = smoothedHands;
+    state.hands = smoothedHands;
 
     // Actualizar FPS de detección
     updateDetectionFps();
@@ -265,6 +344,220 @@ const HandPose = (() => {
       state.detection.frameCount = 0;
       state.detection.lastFpsTime = now;
     }
+  }
+
+  // =========================================================================
+  // SECCIÓN: SUAVIZADO
+  // =========================================================================
+  // Suaviza las coordenadas de las manos para eliminar temblor.
+  // Usa One Euro o EMA con zona muerta y tolerancia de desaparición.
+
+  // Estado privado de suavizado por mano
+  const smoothingState = {
+    left: {
+      lastUpdateTime: 0,
+      disappeared: false,
+      landmarks: [], // Puntos suavizados previos
+      velocities: [], // Velocidades para One Euro
+    },
+    right: {
+      lastUpdateTime: 0,
+      disappeared: false,
+      landmarks: [],
+      velocities: [],
+    },
+  };
+
+  // Calcular distancia euclidiana entre dos puntos
+  function distance(p1, p2) {
+    const dx = p1[0] - p2[0];
+    const dy = p1[1] - p2[1];
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Filtro One Euro para suavizar un punto individual (optimizado para fluidez)
+  function applyOneEuroFilter(rawPoint, smoothedPoint, velocity, deltaTime) {
+    const minCutoff = CONFIG.ONE_EURO_MIN_CUTOFF;
+    const beta = CONFIG.ONE_EURO_BETA;
+
+    if (!smoothedPoint) {
+      return { point: rawPoint, velocity: [0, 0] };
+    }
+
+    // Asegurar deltaTime válido (30-60 FPS typical = 0.016-0.033s)
+    const dt = Math.max(0.008, Math.min(0.05, deltaTime));
+
+    // Calcular velocidad instantánea
+    const rawVelocity = [
+      (rawPoint[0] - smoothedPoint[0]) / dt,
+      (rawPoint[1] - smoothedPoint[1]) / dt,
+    ];
+
+    // Suavizar velocidad con factor bajo para máxima responsividad
+    const alphaVel = 0.5; // Menos suavizado = más responsivo
+    const smoothedVelocity = [
+      alphaVel * rawVelocity[0] + (1 - alphaVel) * velocity[0],
+      alphaVel * rawVelocity[1] + (1 - alphaVel) * velocity[1],
+    ];
+
+    // Calcular magnitud de velocidad
+    const speed = Math.sqrt(smoothedVelocity[0] ** 2 + smoothedVelocity[1] ** 2);
+
+    // Frecuencia de corte adaptativa
+    // Cuando quieto: usa minCutoff (más suavizado)
+    // Cuando se mueve: sube cutoff (menos suavizado, más rápido)
+    const cutoff = minCutoff + beta * speed;
+
+    // Convertir frecuencia a coeficiente de suavizado usando fórmula más suave
+    const r = 2 * Math.PI * cutoff * dt;
+    const te = r / (r + 1.0);
+
+    // Aplicar filtro pasa-bajos con interpolación suave
+    const filteredPoint = [
+      te * rawPoint[0] + (1 - te) * smoothedPoint[0],
+      te * rawPoint[1] + (1 - te) * smoothedPoint[1],
+    ];
+
+    return {
+      point: filteredPoint,
+      velocity: smoothedVelocity,
+    };
+  }
+
+  // Filtro EMA (Media Móvil Exponencial)
+  function applyEMAFilter(rawPoint, smoothedPoint, alpha) {
+    if (!smoothedPoint) {
+      return rawPoint;
+    }
+
+    return [
+      alpha * rawPoint[0] + (1 - alpha) * smoothedPoint[0],
+      alpha * rawPoint[1] + (1 - alpha) * smoothedPoint[1],
+    ];
+  }
+
+  // Aplicar zona muerta: rechazar cambios menores al umbral
+  function applyDeadzone(rawPoint, prevPoint, threshold) {
+    if (!prevPoint) {
+      return rawPoint;
+    }
+
+    const dist = distance(rawPoint, prevPoint);
+
+    // Si cambio es muy pequeño, ignorarlo completamente
+    if (dist < threshold) {
+      return prevPoint;
+    }
+
+    // Si cambio es pequeño pero mayor al umbral, interpolar para suavidad
+    if (dist < threshold * 3) {
+      const factor = dist / (threshold * 3);
+      return [
+        prevPoint[0] + (rawPoint[0] - prevPoint[0]) * factor,
+        prevPoint[1] + (rawPoint[1] - prevPoint[1]) * factor,
+      ];
+    }
+
+    return rawPoint;
+  }
+
+  // Suavizar todas las manos detectadas
+  function applySmoothingFilter(hands, currentTime) {
+    if (!CONFIG.SMOOTHING_ENABLED) {
+      // Si suavizado desactivado, devolver crudos
+      return hands.map((hand) => ({
+        ...hand,
+        landmarksRaw: hand.landmarks,
+        landmarks: hand.landmarks,
+      }));
+    }
+
+    return hands.map((hand) => {
+      const side = hand.side.toLowerCase();
+      const sideState = smoothingState[side];
+
+      if (!sideState) {
+        return hand; // Fallback si lado desconocido
+      }
+
+      // Calcular delta time ANTES de actualizar timestamp
+      const deltaTime = Math.max(0.001, (currentTime - sideState.lastUpdateTime) / 1000);
+
+      // Actualizar timestamp
+      sideState.lastUpdateTime = currentTime;
+      sideState.disappeared = false;
+
+      // Inicializar estado si es necesario
+      if (sideState.landmarks.length === 0) {
+        sideState.landmarks = hand.landmarks.map((p) => [...p]);
+        sideState.velocities = hand.landmarks.map(() => [0, 0]);
+        return {
+          ...hand,
+          landmarksRaw: hand.landmarks,
+          landmarks: hand.landmarks,
+        };
+      }
+
+      // Aplicar suavizado a cada punto
+      const smoothedLandmarks = hand.landmarks.map((rawPoint, index) => {
+        const prevSmoothed = sideState.landmarks[index];
+        const prevVelocity = sideState.velocities[index] || [0, 0];
+
+        // 1. Aplicar zona muerta en punto crudo
+        const afterDeadzone = applyDeadzone(
+          rawPoint,
+          prevSmoothed,
+          CONFIG.DEADZONE_THRESHOLD
+        );
+
+        // 2. Aplicar filtro elegido
+        let smoothedPoint;
+        if (CONFIG.SMOOTHING_METHOD === 'oneEuro') {
+          const result = applyOneEuroFilter(
+            afterDeadzone,
+            prevSmoothed,
+            prevVelocity,
+            deltaTime
+          );
+          smoothedPoint = result.point;
+          sideState.velocities[index] = result.velocity;
+        } else {
+          smoothedPoint = applyEMAFilter(
+            afterDeadzone,
+            prevSmoothed,
+            CONFIG.EMA_ALPHA
+          );
+        }
+
+        sideState.landmarks[index] = smoothedPoint;
+        return smoothedPoint;
+      });
+
+      return {
+        ...hand,
+        landmarksRaw: hand.landmarks, // Guardar crudos para debug
+        landmarks: smoothedLandmarks, // Devolver suavizados
+      };
+    });
+  }
+
+  // Manejar desaparición de manos con tolerancia
+  function handleHandDisappearance(currentTime) {
+    const tolerance = CONFIG.HAND_DISAPPEARANCE_TOLERANCE_MS;
+
+    Object.keys(smoothingState).forEach((side) => {
+      const sideState = smoothingState[side];
+      const timeSinceLastUpdate = currentTime - sideState.lastUpdateTime;
+
+      if (timeSinceLastUpdate > tolerance) {
+        sideState.disappeared = true;
+        // Limpiar estado después de desaparecer
+        if (timeSinceLastUpdate > tolerance + 500) {
+          sideState.landmarks = [];
+          sideState.velocities = [];
+        }
+      }
+    });
   }
 
   // =========================================================================
@@ -308,7 +601,7 @@ const HandPose = (() => {
         point[1] * state.camera.height,
       ]);
 
-      // Dibujar esqueleto (líneas verdes)
+      // Dibujar esqueleto suavizado (líneas verdes)
       p.stroke(0, 255, 0);
       p.strokeWeight(2);
       connections.forEach((connection) => {
@@ -320,12 +613,26 @@ const HandPose = (() => {
         }
       });
 
-      // Dibujar puntos clave (círculos rojos)
-      p.fill(255, 0, 0);
+      // Dibujar puntos suavizados (círculos verdes)
+      p.fill(0, 255, 0);
       p.noStroke();
       landmarksPixels.forEach((point) => {
-        p.ellipse(point[0], point[1], 5);
+        p.ellipse(point[0], point[1], 6);
       });
+
+      // Dibujar puntos crudos si disponibles (círculos rojos pequeños)
+      if (hand.landmarksRaw && CONFIG.SMOOTHING_ENABLED) {
+        const landmarksRawPixels = hand.landmarksRaw.map((point) => [
+          point[0] * state.camera.width,
+          point[1] * state.camera.height,
+        ]);
+
+        p.fill(255, 0, 0);
+        p.noStroke();
+        landmarksRawPixels.forEach((point) => {
+          p.ellipse(point[0], point[1], 3);
+        });
+      }
 
       // Dibujar centro de palma (círculo amarillo)
       const palmCenterPixels = [
@@ -401,10 +708,8 @@ const HandPose = (() => {
     // Iniciar detección de manos
     start: function () {
       if (state.detection.model && state.detection.isModelReady) {
-        state.detection.model.detectStart(
-          state.camera.video.elt || state.camera.video,
-          onHandsEstimated
-        );
+        // Reiniciar loop de detección
+        detectHands();
         console.log('▶️ Detección de manos iniciada');
       } else {
         console.warn('⚠️ Modelo no listo para iniciar detección');
@@ -414,18 +719,18 @@ const HandPose = (() => {
     // Detener detección de manos
     stop: function () {
       if (state.detection.model && state.detection.isModelReady) {
-        state.detection.model.detectStop();
         state.detection.hands = [];
         state.hands = [];
         console.log('⏹️ Detección de manos detenida');
       }
     },
 
-    // Obtener manos detectadas con coordenadas normalizadas
+    // Obtener manos detectadas con coordenadas normalizadas (suavizadas)
     getHands: function () {
       return state.hands.map((hand) => ({
         side: hand.side,
-        landmarks: hand.landmarks,
+        landmarks: hand.landmarks, // Suavizados
+        landmarksRaw: hand.landmarksRaw || hand.landmarks, // Crudos (para comparar)
         palmCenter: hand.palmCenter,
         confidence: hand.confidence,
       }));
@@ -439,6 +744,45 @@ const HandPose = (() => {
     // Obtener acceso al video (para detectores externos)
     getVideo: function () {
       return state.camera.video;
+    },
+
+    // Ajustar parámetros de suavizado en tiempo real
+    setSmoothingParams: function (params) {
+      if (params.enabled !== undefined) {
+        CONFIG.SMOOTHING_ENABLED = params.enabled;
+      }
+      if (params.method) {
+        CONFIG.SMOOTHING_METHOD = params.method; // 'ema' o 'oneEuro'
+      }
+      if (params.minCutoff !== undefined) {
+        CONFIG.ONE_EURO_MIN_CUTOFF = params.minCutoff;
+      }
+      if (params.beta !== undefined) {
+        CONFIG.ONE_EURO_BETA = params.beta;
+      }
+      if (params.alpha !== undefined) {
+        CONFIG.EMA_ALPHA = params.alpha;
+      }
+      if (params.deadzone !== undefined) {
+        CONFIG.DEADZONE_THRESHOLD = params.deadzone;
+      }
+      if (params.disappearanceTolerance !== undefined) {
+        CONFIG.HAND_DISAPPEARANCE_TOLERANCE_MS = params.disappearanceTolerance;
+      }
+      console.log('✅ Parámetros de suavizado actualizados:', params);
+    },
+
+    // Obtener parámetros actuales
+    getSmoothingParams: function () {
+      return {
+        enabled: CONFIG.SMOOTHING_ENABLED,
+        method: CONFIG.SMOOTHING_METHOD,
+        minCutoff: CONFIG.ONE_EURO_MIN_CUTOFF,
+        beta: CONFIG.ONE_EURO_BETA,
+        alpha: CONFIG.EMA_ALPHA,
+        deadzone: CONFIG.DEADZONE_THRESHOLD,
+        disappearanceTolerance: CONFIG.HAND_DISAPPEARANCE_TOLERANCE_MS,
+      };
     },
   };
 })();
