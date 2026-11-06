@@ -9,7 +9,7 @@
  *
  * API pública (controlador / handpose):
  *   TetrisUI.init()                      Monta la interfaz (idempotente)
- *   TetrisUI.show(screen)                'start' | 'scenarios' | 'game' | 'paused'
+ *   TetrisUI.show(screen)                'start' | 'scenarios' | 'game' | 'paused' | 'over'
  *   TetrisUI.getScreen()                 Pantalla activa
  *   TetrisUI.setScenario(id)             'teclado' | 'edificio'
  *   TetrisUI.getScenario()               Escenario seleccionado
@@ -60,11 +60,13 @@
   if (window.TetrisUI) return;
 
   var ROOT_ID = 'tui-app';
-  var SCREENS = ['start', 'scenarios', 'game', 'paused'];
+  var SCREENS = ['start', 'scenarios', 'game', 'paused', 'over'];
 
   var SCENARIOS = [
-    { id: 'teclado', label: 'Teclado', index: '01' },
-    { id: 'edificio', label: 'Edificio', index: '02' }
+    { id: 'catedral', label: 'Catedral', index: '01' },
+    { id: 'puente-roto', label: 'Puente Roto', index: '02' },
+    { id: 'santa-ana', label: 'Santa Ana', index: '03' },
+    { id: 'tranvia', label: 'Tranvía', index: '04' }
   ];
 
   var state = {
@@ -180,7 +182,8 @@
     card.setAttribute('data-tui-scenario-id', scenario.id);
     card.setAttribute('aria-pressed', 'false');
 
-    card.appendChild(el('span', 'tui-scenario__preview'));
+    var preview = el('span', 'tui-scenario__preview');
+    card.appendChild(preview);
     card.appendChild(el('span', 'tui-scenario__index', scenario.index));
     card.appendChild(el('span', 'tui-scenario__name', scenario.label));
     card.appendChild(el('span', 'tui-scenario__badge', 'Seleccionado'));
@@ -237,7 +240,7 @@
     board.setAttribute('aria-label', 'Tablero de Tetris');
     bezel.appendChild(board);
     screenArea.appendChild(bezel);
-    screenArea.appendChild(el('span', 'tui-console__tag', 'Color · 10 × 20'));
+    screenArea.appendChild(el('span', 'tui-console__tag', 'Color \u00B7 16 \u00D7 16'));
     consoleBox.appendChild(screenArea);
 
     /* Panel derecho: puntuación, pieza siguiente y cámara. */
@@ -336,7 +339,41 @@
     var actions = el('div', 'tui-pause__actions');
     actions.appendChild(actionButton('Continuar', 'resume', 'primary', 'resume'));
     actions.appendChild(actionButton('Reiniciar', 'restart', 'ghost', 'restart'));
+    actions.appendChild(actionButton('Cambiar escenario', 'scenarios', 'ghost', 'pause-scenarios'));
     actions.appendChild(actionButton('Menú principal', 'menu', 'ghost', 'menu'));
+    panel.appendChild(actions);
+
+    overlay.appendChild(panel);
+    return overlay;
+  }
+
+  /* Pantalla de fin de partida: mismo lenguaje que la pausa, sin "Continuar". */
+  function buildOver() {
+    var overlay = el('div', 'tui-over');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'tui-over-title');
+
+    var panel = el('div', 'tui-pause__panel');
+    panel.appendChild(el('p', 'tui-kicker', 'Sistema'));
+
+    var title = el('h2', 'tui-title', 'Game over');
+    title.id = 'tui-over-title';
+    panel.appendChild(title);
+
+    panel.appendChild(el('p', 'tui-pause__hint', 'Partida terminada'));
+
+    var score = el('div', 'tui-over__score');
+    score.appendChild(el('span', 'tui-over__score-label', 'Puntuación final'));
+    var scoreValue = el('span', 'tui-over__score-value', '000000');
+    scoreValue.setAttribute('data-tui-final-score', '');
+    score.appendChild(scoreValue);
+    panel.appendChild(score);
+
+    var actions = el('div', 'tui-pause__actions');
+    actions.appendChild(actionButton('Reiniciar', 'restart', 'primary', 'over-restart'));
+    actions.appendChild(actionButton('Cambiar escenario', 'scenarios', 'ghost', 'over-scenarios'));
+    actions.appendChild(actionButton('Menú principal', 'menu', 'ghost', 'over-menu'));
     panel.appendChild(actions);
 
     overlay.appendChild(panel);
@@ -393,13 +430,15 @@
     if (!stats || !ensure()) return;
     if (stats.score === undefined || stats.score === null) return;
 
-    var node = root.querySelector('[data-tui-stat="score"]');
-    if (!node) return;
-
     var value = Number(stats.score);
-    node.textContent = Number.isFinite(value) && value >= 0
+    var texto = Number.isFinite(value) && value >= 0
       ? String(Math.trunc(value)).padStart(6, '0')
       : '—';
+
+    var nodes = root.querySelectorAll('[data-tui-stat="score"], [data-tui-final-score]');
+    for (var i = 0; i < nodes.length; i++) {
+      nodes[i].textContent = texto;
+    }
   }
 
   /* --------------------------------------------------------------- behavior */
@@ -442,13 +481,13 @@
         break;
 
       case 'restart':
-        if (state.screen !== 'paused') return;
+        if (state.screen !== 'paused' && state.screen !== 'over') return;
         emit('game:restart', {});
         show('game');
         break;
 
       case 'menu':
-        if (state.screen !== 'paused') return;
+        if (state.screen !== 'paused' && state.screen !== 'over') return;
         emit('game:menu', {});
         show('start');
         break;
@@ -631,12 +670,14 @@
     root.appendChild(buildScenarios());
     root.appendChild(buildGame());
     root.appendChild(buildPause());
+    root.appendChild(buildOver());
 
     root.addEventListener('click', onClick);
     root.addEventListener('pointerdown', onPointerDown);
     root.addEventListener('pointerup', onPointerUp);
     root.addEventListener('pointercancel', onPointerUp);
-    document.body.appendChild(root);
+    var contenedor = document.getElementById('tetris-app') || document.body;
+    contenedor.appendChild(root);
 
     syncScenarioUI();
   }

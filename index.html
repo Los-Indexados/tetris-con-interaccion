@@ -6,20 +6,20 @@
     <title>Tetris con Interacción</title>
     <link rel="stylesheet" href="style.css">
 
-    <!-- p5.js en modo global: habilita setup(), draw() y keyPressed() -->
+    <!-- p5.js en modo global: habilita setup(), draw() y las constantes -->
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
     <!-- p5.sound: loadSound(), loop(), play() y efectos -->
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/addons/p5.sound.min.js"></script>
 </head>
 
 <body>
-<<<<<<< HEAD
-    
-    <script src="js/interface.js"></script>
-=======
-    <!-- Todo el juego (motor + interfaz + p5) vive en js/gamelogic.js -->
-    <main id="juego"></main>
+    <!-- Contenedor raíz de la interfaz. El canvas del tablero se monta dentro
+         del panel de la consola, no acá. -->
+    <main id="tetris-app"></main>
+
+    <!-- Orden obligatorio: motor -> interfaz -> integración p5 -->
     <script src="js/gamelogic.js"></script>
->>>>>>> 78f4acffb8628ff943c87fc6e5f3b1e0f0d1edca
+    <script src="js/interface.js"></script>
+    <script src="sketch.js"></script>
 </body>
 </html>

@@ -1,47 +1,24 @@
 /* ============================================================================
-   TETRIS — FASE 1
-   ----------------------------------------------------------------------------
-   Todo el juego vive en este archivo, sin carpetas ni archivos externos.
-
-     SECCIÓN 1 · MOTOR     Pieza, Tablero y JuegoTetris. Lógica pura: no
-                           depende de p5, ni del DOM, ni del teclado.
-     SECCIÓN 2 · LAYOUT    Cálculo dinámico de celda, offsets y espacio lateral.
-     SECCIÓN 3 · INTERFAZ  Paleta, panel de puntaje y overlays (Persona 2).
-     SECCIÓN 4 · AUDIO     Música y efectos con p5.sound.
-     SECCIÓN 5 · p5        Canvas, dibujo del tablero y entrada de teclado.
-
-   ┌──────────────────────────────────────────────────────────────────────────┐
-   │ PERSONA 3 (HANDPOSE) — API PÚBLICA                                       │
-   │                                                                          │
-   │ `window.juego` es el motor vivo. Llamá estas funciones desde handpose:   │
-   │                                                                          │
-   │   juego.moverIzquierda()   -> true/false                                 │
-   │   juego.moverDerecha()     -> true/false                                 │
-   │   juego.bajarRapido()      -> true/false (baja UNA fila)                 │
-   │   juego.rotar()            -> true/false (con wall-kick)                 │
-   │   juego.reiniciar()                                                      │
-   │   juego.alternarPausa()    -> estado de pausa                            │
-   │                                                                          │
-   │ No dependen del teclado. Devuelven false si no se pudieron aplicar       │
-   │ (pausa, game over, borde del tablero o colisión).                        │
-   └──────────────────────────────────────────────────────────────────────────┘
-
-   ┌──────────────────────────────────────────────────────────────────────────┐
-   │ PERSONA 2 (INTERFAZ) — ESTADO PÚBLICO                                    │
-   │                                                                          │
-   │   juego.tablero.matriz   matriz [FILAS][COLUMNAS] con tipo de pieza|null │
-   │   juego.piezaActual      Pieza en juego (o null)                         │
-   │   juego.siguientePieza   Pieza próxima                                   │
-   │   juego.puntaje / lineas / nivel / pausado / gameOver                    │
-   │   juego.calcularCaida()  filas que puede bajar la pieza actual           │
-   │   window.layoutTetris    tamaño y posición actual del tablero y panel   │
-   │                                                                          │
-   │ El panel y los overlays están en la SECCIÓN 3. Si querés separarlos en   │
-   │ js/interface.js, cortá esa sección entera. Cargá interface.js después    │
-   │ de gamelogic.js y no dupliques PALETA (es const y rompería el arranque). │
-   └──────────────────────────────────────────────────────────────────────────┘
-   ============================================================================ */
-
+ * TETRIS — MOTOR + AUDIO
+ * ----------------------------------------------------------------------------
+ * Lógica pura del juego y sonido. NO dibuja, NO toca el DOM y NO escucha el
+ * teclado: eso vive en js/sketch.js (integración p5) y js/interface.js
+ * (pantallas, botones y API para handpose).
+ *
+ * Instancia viva: window.juego (la crea sketch.js en setup()).
+ *
+ *   juego.moverIzquierda()   juego.moverDerecha()   juego.bajarRapido()
+ *   juego.rotar()            juego.rotarIzquierda() juego.alternarPausa()
+ *   juego.reiniciar()        juego.actualizar(deltaMs)
+ *   juego.calcularCaida()    juego.estaActivo()
+ *
+ * Estado público: tablero.matriz, piezaActual, siguientePieza, puntaje,
+ * lineas, nivel, pausado, gameOver.
+ *
+ * Las secciones de layout, panel, overlays y callbacks de p5 de la Fase 1 se
+ * retiraron a propósito: la interfaz HTML las reemplaza y sketch.js es el
+ * único punto de contacto con p5. El motor y el audio quedaron intactos.
+ * ==========================================================================*/
 /* ============================================================================
    SECCIÓN 1 · MOTOR
    ============================================================================ */
@@ -165,6 +142,23 @@ class Pieza {
       rotada[fila] = [];
       for (let columna = 0; columna < n; columna++) {
         rotada[fila][columna] = this.forma[n - 1 - columna][fila];
+      }
+    }
+    return rotada;
+  }
+
+  /**
+   * Rota la forma 90° en sentido antihorario sin modificar la pieza.
+   * Es la inversa exacta de formaRotada().
+   * @returns {number[][]} nueva matriz rotada
+   */
+  formaRotadaIzquierda() {
+    const n = this.forma.length;
+    const rotada = [];
+    for (let fila = 0; fila < n; fila++) {
+      rotada[fila] = [];
+      for (let columna = 0; columna < n; columna++) {
+        rotada[fila][columna] = this.forma[columna][n - 1 - fila];
       }
     }
     return rotada;
@@ -310,8 +304,23 @@ class JuegoTetris {
    */
   rotar() {
     if (!this.estaActivo()) return false;
+    return this.aplicarRotacion(this.piezaActual.formaRotada());
+  }
 
-    const nuevaForma = this.piezaActual.formaRotada();
+  /**
+   * Rota la pieza 90° en sentido antihorario, con el mismo wall-kick.
+   */
+  rotarIzquierda() {
+    if (!this.estaActivo()) return false;
+    return this.aplicarRotacion(this.piezaActual.formaRotadaIzquierda());
+  }
+
+  /**
+   * Intenta aplicar una forma rotada, con desplazamientos de emergencia.
+   * @param {number[][]} nuevaForma
+   * @returns {boolean}
+   */
+  aplicarRotacion(nuevaForma) {
     // Desplazamientos de emergencia, de menor a mayor, como en el Tetris clásico.
     const intentos = [0, -1, 1, -2, 2];
 
@@ -456,457 +465,13 @@ class JuegoTetris {
     return new Pieza(this.bolsa.pop());
   }
 }
-
 /* ============================================================================
-   SECCIÓN 2 · LAYOUT Y ESTADO
+   AUDIO  (p5.sound)
    ----------------------------------------------------------------------------
-   Canvas 100% de la ventana con margen perimetral de 1 cm (≈38 px). La matriz
-   es 16x16 para que el tablero llene la pantalla con bloques grandes.
-
-     [ 1 cm ] [ tablero 16x16 ] [ separación ] [ panel ] [ 1 cm ]
-
-   El tablero se lleva el máximo tamaño posible: la celda sale del alto y del
-   ancho disponible después de reservar el panel. El panel mide 190/600 del
-   alto del tablero, así que escala junto con él. El grupo tablero+panel se
-   centra dentro del área útil, con márgenes simétricos.
-
-   Valores públicos (window.layoutTetris, se renueva en cada resize):
-     margen                 margen perimetral en px
-     tamCelda               lado de cada bloque
-     offsetX/offsetY        esquina superior izquierda del tablero
-     anchoTablero/altoTablero
-     espacioLateral         margen extra por fuera del grupo tablero+panel
-     panelX/panelY/panelAncho/panelAlto
-     panelEscala            0 = panel oculto (pantalla demasiado chica)
-     handpose {x,y,ancho,alto}  área reservada al visor de Persona 3
-   ============================================================================ */
-
-const CELDA_DISENO = 30;   // referencia del diseño original (escala 1)
-const MARGEN_1CM = 38;     // 96 px/pulgada / 2.54 ≈ 37.8
-
-let tamCelda = CELDA_DISENO;
-let offsetX = MARGEN_1CM;
-let offsetY = MARGEN_1CM;
-let anchoTablero = COLUMNAS * CELDA_DISENO;
-let altoTablero = FILAS * CELDA_DISENO;
-let espacioLateral = 0;
-let panelX = 0;
-let panelY = 0;
-let panelAncho = 190;
-let panelAlto = 600;
-let panelEscala = 1;
-let panelVisible = true;
-
-// ─── Estado de la sesión ─────────────────────────────────────────────────────
-let juego;
-
-// Evitan que mantener P o R produzca un toggle por cada repetición del SO.
-let pausaPulsada = false;
-let reinicioPulsado = false;
-
-/**
- * Recalcula el layout completo. Se llama en setup() y en windowResized().
- *
- * 1. Área útil = ventana menos 1 cm en cada borde.
- * 2. Celda = la mayor que entra por alto (FILAS) y por ancho
- *    (COLUMNAS + panel + separación), sin deformar el tablero.
- * 3. El grupo tablero + panel se centra dentro del área útil.
- */
-function calcularLayout() {
-  const utilAncho = windowWidth - MARGEN_1CM * 2;
-  const utilAlto = windowHeight - MARGEN_1CM * 2;
-
-  // Separación tablero-panel: proporcional, acotada entre 12 y 32 px.
-  const separacion = Math.min(32, Math.max(12, Math.round(utilAncho * 0.015)));
-
-  // El panel mide 190/600 del alto del tablero. En unidades de celda eso es
-  // (190/600) * FILAS: para 16 filas, 5.07 celdas de ancho.
-  const panelEnCeldas = (190 / 600) * FILAS;
-
-  // Celda máxima: la que entra por alto y por ancho (tablero + panel + gap).
-  const celdaPorAlto = utilAlto / FILAS;
-  const celdaPorAncho = (utilAncho - separacion) / (COLUMNAS + panelEnCeldas);
-  let celda = Math.min(celdaPorAlto, celdaPorAncho);
-
-  // Si el panel quedaría por debajo de la escala mínima legible, se oculta y
-  // el tablero aprovecha todo el ancho disponible.
-  panelVisible = (FILAS * celda) / 600 >= 0.5;
-  if (!panelVisible) {
-    celda = Math.min(celdaPorAlto, utilAncho / COLUMNAS);
-  }
-
-  tamCelda = Math.max(8, Math.floor(celda));
-
-  anchoTablero = tamCelda * COLUMNAS;
-  altoTablero = tamCelda * FILAS;
-
-  if (panelVisible) {
-    panelEscala = altoTablero / 600;
-    panelAncho = (190 / 600) * altoTablero;
-  } else {
-    panelEscala = 0;
-    panelAncho = 0;
-  }
-  panelAlto = altoTablero;
-
-  // Grupo tablero + separación + panel, centrado dentro del margen de 1 cm.
-  const anchoGrupo = anchoTablero + (panelVisible ? separacion + panelAncho : 0);
-  offsetX = Math.round(MARGEN_1CM + (utilAncho - anchoGrupo) / 2);
-  offsetY = Math.round(MARGEN_1CM + (utilAlto - altoTablero) / 2);
-
-  panelX = offsetX + anchoTablero + separacion;
-  panelY = offsetY;
-
-  // Margen extra por fuera del grupo (además del margen de 1 cm).
-  espacioLateral = Math.max(0, (utilAncho - anchoGrupo) / 2);
-
-  // Snapshot público para Persona 2 / Persona 3 (se renueva en cada resize).
-  window.layoutTetris = {
-    margen: MARGEN_1CM,
-    columnas: COLUMNAS,
-    filas: FILAS,
-    tamCelda,
-    offsetX,
-    offsetY,
-    anchoTablero,
-    altoTablero,
-    separacion,
-    espacioLateral,
-    panelVisible,
-    panelX,
-    panelY,
-    panelAncho,
-    panelAlto,
-    panelEscala,
-    handpose: {
-      x: panelX,
-      y: panelY + 456 * panelEscala,
-      ancho: panelAncho,
-      alto: 128 * panelEscala
-    }
-  };
-}
-
-/* ============================================================================
-   SECCIÓN 3 · INTERFAZ  (PERSONA 2)
-   ----------------------------------------------------------------------------
-   Paleta, panel de puntaje, próxima pieza, ayuda de controles y overlays.
-   Si esta sección se migra a js/interface.js, debe cargarse después de este
-   archivo en index.html.
-   ============================================================================ */
-
-// Paleta única de la fase visual. Cambiar un valor acá cambia todo el juego.
-const PALETA = {
-  fondo: '#0b0f17',
-  panel: '#121a27',
-  borde: '#1e2a3d',
-  grilla: '#1b2534',
-  texto: '#e6edf7',
-  textoTenue: '#7d8ea6',
-  acento: '#00e5ff',
-  peligro: '#ff4d6d'
-};
-
-/** Caja redondeada estándar de la interfaz. */
-function dibujarCaja(x, y, ancho, alto, radio = 8) {
-  push();
-  fill(PALETA.panel);
-  stroke(PALETA.borde);
-  strokeWeight(1);
-  rect(x, y, ancho, alto, radio);
-  pop();
-}
-
-/** Tarjeta con etiqueta chica y valor grande (PUNTAJE, LÍNEAS, NIVEL). */
-function drawTarjeta(x, y, ancho, alto, etiqueta, valor, escala = 1) {
-  dibujarCaja(x, y, ancho, alto, 8 * escala);
-
-  push();
-  noStroke();
-  textAlign(LEFT, TOP);
-
-  fill(PALETA.textoTenue);
-  textSize(10 * escala);
-  textStyle(BOLD);
-  text(etiqueta, x + 12 * escala, y + 11 * escala);
-
-  fill(PALETA.texto);
-  textSize(22 * escala);
-  text(valor, x + 12 * escala, y + 29 * escala);
-
-  pop();
-}
-
-/**
- * Dibuja la próxima pieza centrada dentro de una caja.
- * @param {Pieza} pieza
- * @param {number} x esquina superior izquierda de la caja
- * @param {number} y
- * @param {number} ancho
- * @param {number} alto
- * @param {number} tamCelda
- */
-function dibujarPiezaMini(pieza, x, y, ancho, alto, tamCelda) {
-  if (!pieza) return;
-
-  // Celdas ocupadas en coordenadas de la propia forma (sin posición).
-  const celdas = [];
-  for (let fila = 0; fila < pieza.forma.length; fila++) {
-    for (let columna = 0; columna < pieza.forma[fila].length; columna++) {
-      if (pieza.forma[fila][columna]) celdas.push({ x: columna, y: fila });
-    }
-  }
-  if (celdas.length === 0) return;
-
-  // Recuadro real de la pieza, para centrarla sin importar el hueco de la caja.
-  const minX = Math.min(...celdas.map((c) => c.x));
-  const maxX = Math.max(...celdas.map((c) => c.x));
-  const minY = Math.min(...celdas.map((c) => c.y));
-  const maxY = Math.max(...celdas.map((c) => c.y));
-
-  const anchoPieza = (maxX - minX + 1) * tamCelda;
-  const altoPieza = (maxY - minY + 1) * tamCelda;
-  const origenX = x + (ancho - anchoPieza) / 2;
-  const origenY = y + (alto - altoPieza) / 2;
-
-  push();
-  noStroke();
-  fill(pieza.color);
-  for (const celda of celdas) {
-    rect(
-      origenX + (celda.x - minX) * tamCelda + 1,
-      origenY + (celda.y - minY) * tamCelda + 1,
-      tamCelda - 2,
-      tamCelda - 2,
-      4
-    );
-  }
-  pop();
-}
-
-/** Panel lateral. Se dibuja una vez por frame. */
-function drawPanel(juego) {
-  // El panel escala con el tablero: si queda muy chico, no se dibuja.
-  if (panelEscala >= 0.85) {
-    drawPanelCompleto(juego);
-  } else if (panelEscala >= 0.5) {
-    drawPanelCompacto(juego);
-  }
-}
-
-/**
- * Panel completo (Persona 2 / Persona 3), escalado con el tablero.
- * Diseño base: caja de 190 x 600 unidades (una celda de 30 = escala 1).
- */
-function drawPanelCompleto(juego) {
-  const s = panelEscala;
-  const x = panelX;
-  const w = panelAncho;
-  const y = panelY;
-
-  push();
-  noStroke();
-  textAlign(LEFT, TOP);
-
-  // Título
-  fill(PALETA.acento);
-  textSize(26 * s);
-  textStyle(BOLD);
-  text('TETRIS', x, y + 6 * s);
-
-  // Puntaje
-  drawTarjeta(x, y + 40 * s, w, 58 * s, 'PUNTAJE', String(juego.puntaje).padStart(6, '0'), s);
-
-  // Líneas y nivel
-  const anchoMitad = (w - 10 * s) / 2;
-  drawTarjeta(x, y + 108 * s, anchoMitad, 58 * s, 'LÍNEAS', String(juego.lineas), s);
-  drawTarjeta(x + anchoMitad + 10 * s, y + 108 * s, anchoMitad, 58 * s, 'NIVEL', String(juego.nivel), s);
-
-  // Próxima pieza
-  fill(PALETA.textoTenue);
-  textSize(11 * s);
-  textStyle(BOLD);
-  text('SIGUIENTE', x, y + 182 * s);
-  textStyle(NORMAL);
-
-  dibujarCaja(x, y + 200 * s, w, 92 * s, 8 * s);
-  dibujarPiezaMini(juego.siguientePieza, x, y + 200 * s, w, 92 * s, 22 * s);
-
-  // Ayuda de controles
-  fill(PALETA.textoTenue);
-  textSize(11 * s);
-  textStyle(BOLD);
-  text('CONTROLES', x, y + 310 * s);
-  textStyle(NORMAL);
-
-  const controles = [
-    ['← / A', 'mover'],
-    ['→ / D', 'mover'],
-    ['↓ / S', 'bajar'],
-    ['↑ / W', 'rotar'],
-    ['ESPACIO', 'rotar'],
-    ['P', 'pausa']
-  ];
-
-  textSize(11 * s);
-  controles.forEach(([tecla, accion], i) => {
-    const fy = y + (332 + i * 17) * s;
-
-    fill(PALETA.texto);
-    textAlign(LEFT, TOP);
-    text(tecla, x, fy);
-
-    fill(PALETA.textoTenue);
-    textAlign(RIGHT, TOP);
-    text(accion, x + w, fy);
-  });
-
-  // Visor / estado de Handpose: área reservada a Persona 3.
-  fill(PALETA.textoTenue);
-  textSize(11 * s);
-  textStyle(BOLD);
-  textAlign(LEFT, TOP);
-  text('HAND POSE', x, y + 438 * s);
-  textStyle(NORMAL);
-
-  const hpY = y + 456 * s;
-  const hpAlto = 128 * s;
-  dibujarCaja(x, hpY, w, hpAlto, 8 * s);
-
-  push();
-  noFill();
-  stroke(PALETA.borde);
-  strokeWeight(Math.max(1, s));
-  rect(x + 8 * s, hpY + 8 * s, w - 16 * s, hpAlto - 16 * s, 6 * s);
-  pop();
-
-  fill(PALETA.textoTenue);
-  textAlign(CENTER, CENTER);
-  textSize(10 * s);
-  text('VISOR / ESTADO', x + w / 2, hpY + hpAlto / 2 - 8 * s);
-  textSize(9 * s);
-  text('Persona 3', x + w / 2, hpY + hpAlto / 2 + 10 * s);
-
-  pop();
-}
-
-/**
- * Versión angosta: solo lo imprescindible, con tipografía calculada en píxeles
- * para que siga siendo legible cuando el panel mide poco.
- */
-function drawPanelCompacto(juego) {
-  const x = panelX;
-  const ancho = panelAncho;
-
-  // Escala acotada por ancho y por alto: un panel ancho pero bajo no debe
-  // usar tipografía enorme.
-  const s = Math.max(0.55, Math.min(ancho / 140, altoTablero / 420));
-  const titulo = Math.max(13, 16 * s);
-  const etiqueta = Math.max(8, 9 * s);
-  const valor = Math.max(11, 14 * s);
-
-  push();
-  noStroke();
-  textAlign(LEFT, TOP);
-
-  let y = panelY;
-
-  fill(PALETA.acento);
-  textSize(titulo);
-  textStyle(BOLD);
-  text('TETRIS', x, y);
-  y += titulo * 1.6;
-
-  const fila = (nombre, texto, grande = false) => {
-    fill(PALETA.textoTenue);
-    textSize(etiqueta);
-    textStyle(NORMAL);
-    text(nombre, x, y);
-    y += etiqueta * 1.25;
-
-    fill(PALETA.texto);
-    textSize(grande ? valor : valor * 0.8);
-    textStyle(BOLD);
-    text(texto, x, y);
-    textStyle(NORMAL);
-    y += (grande ? valor : valor * 0.8) * 1.35;
-  };
-
-  fila('PUNTAJE', String(juego.puntaje).padStart(6, '0'), true);
-  fila('LÍNEAS', String(juego.lineas));
-  fila('NIVEL', String(juego.nivel));
-
-  y += valor * 0.6;
-  fill(PALETA.textoTenue);
-  textSize(etiqueta);
-  text('SIGUIENTE', x, y);
-  y += etiqueta * 1.5;
-
-  const tamMini = Math.max(8, Math.min(16, ancho / 6));
-  dibujarPiezaMini(juego.siguientePieza, x, y, ancho, tamMini * 4, tamMini);
-
-  pop();
-}
-
-/** Overlay de pausa y game over sobre el tablero. */
-function drawOverlay(juego) {
-  if (!juego.pausado && !juego.gameOver) return;
-
-  // La tipografía del overlay sigue el tamaño real de la celda.
-  const s = Math.max(0.6, tamCelda / CELDA_DISENO);
-  const centroX = offsetX + anchoTablero / 2;
-  const centroY = offsetY + altoTablero / 2;
-
-  push();
-  noStroke();
-  fill(5, 8, 13, 195);
-  rect(offsetX, offsetY, anchoTablero, altoTablero, 8);
-  textAlign(CENTER, CENTER);
-
-  if (juego.gameOver) {
-    fill(PALETA.peligro);
-    textSize(30 * s);
-    textStyle(BOLD);
-    text('GAME OVER', centroX, centroY - 36 * s);
-
-    textStyle(NORMAL);
-    fill(PALETA.texto);
-    textSize(14 * s);
-    text('Puntaje: ' + juego.puntaje, centroX, centroY + 4 * s);
-
-    fill(PALETA.textoTenue);
-    textSize(12 * s);
-    text('R para reiniciar', centroX, centroY + 34 * s);
-  } else {
-    fill(PALETA.acento);
-    textSize(28 * s);
-    textStyle(BOLD);
-    text('PAUSA', centroX, centroY - 12 * s);
-
-    textStyle(NORMAL);
-    fill(PALETA.texto);
-    textSize(13 * s);
-    text('P para continuar', centroX, centroY + 28 * s);
-  }
-
-  pop();
-}
-
-/* ============================================================================
-   SECCIÓN 4 · AUDIO  (p5.sound)
-   ----------------------------------------------------------------------------
-   Archivos locales en la raíz del proyecto:
-
-     tetris.mp3     música de fondo, en loop
-     linea.mp3      efecto al completar una o más líneas
-     gameover.mp3   efecto al terminar la partida
-
-   Los navegadores bloquean el audio hasta que el usuario interactúa, así que
-   la música arranca en el primer clic o tecla (iniciarAudio). Mientras tanto,
-   drawAvisoAudio() muestra un aviso sutil en el panel.
-
-   Si falta algún archivo, el juego sigue funcionando sin sonido.
-   ============================================================================ */
+   Archivos en la raíz del proyecto: tetris.mp3 (loop), linea.mp3, gameover.mp3.
+   Todo el audio es opcional: si p5.sound no cargó o falta un archivo, el juego
+   sigue funcionando en silencio.
+   ==========================================================================*/
 
 const ARCHIVOS_AUDIO = {
   musica: 'tetris.mp3',
@@ -928,7 +493,7 @@ function cargarAudios() {
 
   sonidoMusica = loadSound(
     ARCHIVOS_AUDIO.musica,
-    () => { if (audioIniciado && (!juego || !juego.gameOver)) intentarMusica(); },
+    () => { if (audioIniciado && (!window.juego || !window.juego.gameOver)) intentarMusica(); },
     () => { sonidoMusica = null; }
   );
 
@@ -971,7 +536,7 @@ function iniciarAudio() {
 
 /** Arranca el loop de la música si el archivo está listo. */
 function intentarMusica() {
-  if (juego && juego.gameOver) return;
+  if (window.juego && window.juego.gameOver) return;
   if (!sonidoMusica || !sonidoMusica.isLoaded()) return;
   if (sonidoMusica.isPlaying()) return;
 
@@ -1013,258 +578,6 @@ function reproducirEfecto(sonido) {
   if (sonido.isPlaying()) sonido.stop();
   sonido.setVolume(VOLUMEN_EFECTOS);
   sonido.play();
-}
-
-/** Aviso sutil cuando la música todavía no está sonando. */
-function drawAvisoAudio() {
-  // En game over la música se corta a propósito: no hay nada que reclamar.
-  if (!juego || juego.gameOver) return;
-
-  if (musicaActiva()) return;
-
-  const disponible = !!(sonidoMusica && sonidoMusica.isLoaded());
-  const mensaje = disponible ? 'CLIC PARA ACTIVAR MÚSICA' : 'FALTA tetris.mp3';
-
-  // Pulso suave para llamar la atención sin tapar el juego.
-  const pulso = 0.5 + 0.5 * Math.sin(millis() / 450);
-  const alpha = 90 + 70 * pulso;
-
-  push();
-  noStroke();
-  textAlign(CENTER, CENTER);
-
-  if (panelVisible && panelEscala >= 0.85) {
-    // Panel completo: debajo del visor de handpose.
-    const s = panelEscala;
-    fill(230, 237, 247, alpha);
-    textSize(9 * s);
-    text(mensaje, panelX + panelAncho / 2, panelY + 590 * s);
-  } else if (panelVisible) {
-    // Panel compacto: al pie del panel.
-    fill(230, 237, 247, alpha);
-    textSize(Math.max(8, panelAncho * 0.07));
-    text(mensaje, panelX + panelAncho / 2, panelY + panelAlto - 14);
-  } else {
-    // Sin panel: debajo del tablero.
-    fill(230, 237, 247, alpha);
-    textSize(12);
-    text(mensaje, offsetX + anchoTablero / 2, offsetY + altoTablero + 18);
-  }
-
-  pop();
-}
-
-/* ============================================================================
-   SECCIÓN 5 · p5
-   ----------------------------------------------------------------------------
-   Ciclo de vida, dibujo del tablero y entrada de teclado. Este es el ÚNICO
-   lugar donde el teclado toca el juego: cada tecla llama a la misma función
-   pública que va a llamar handpose.js.
-   ============================================================================ */
-
-function setup() {
-  // Canvas a pantalla completa. Todo el layout se calcula a partir de esto.
-  const lienzo = createCanvas(windowWidth, windowHeight);
-
-  // Si index.html tiene el contenedor, el canvas vive adentro; si no, p5 lo
-  // agrega al body igual y el juego funciona.
-  const contenedor = document.getElementById('juego');
-  if (contenedor) lienzo.parent(contenedor);
-
-  textFont('monospace');
-  calcularLayout();
-
-  juego = new JuegoTetris();
-
-  // Enganche de audio: el motor avisa cuándo se limpian líneas y cuándo termina.
-  juego.alCompletarLinea = () => reproducirEfecto(sonidoLinea);
-  juego.alGameOver = () => {
-    detenerMusica();
-    reproducirEfecto(sonidoGameOver);
-  };
-
-  cargarAudios();
-
-  // ┌────────────────────────────────────────────────────────────────────────┐
-  // │ PERSONA 3 — ESTE ES TU PUNTO DE ENTRADA                                 │
-  // │                                                                        │
-  // │ `window.juego` es el motor vivo. Desde handpose.js (o la consola)      │
-  // │ podés llamar en cualquier momento:                                     │
-  // │                                                                        │
-  // │   juego.moverIzquierda()   juego.moverDerecha()                        │
-  // │   juego.bajarRapido()      juego.rotar()                               │
-  // │                                                                        │
-  // │ No hace falta tocar este archivo.                                      │
-  // └────────────────────────────────────────────────────────────────────────┘
-  window.juego = juego;
-}
-
-/**
- * p5 llama a esta función automáticamente cuando cambia el tamaño de la
- * ventana: redimensiona el canvas y recalcula celda, offsets y panel.
- */
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  calcularLayout();
-}
-
-function draw() {
-  // La gravedad se calcula con tiempo real, no con frames: si la pestaña se
-  // frena o la máquina va lenta, la caída sigue siendo justa.
-  juego.actualizar(deltaTime);
-
-  background(PALETA.fondo);
-
-  drawTablero();
-  drawPieza();
-  drawPanel(juego);
-  drawOverlay(juego);
-  drawAvisoAudio();
-}
-
-/** Dibuja el fondo del tablero, la grilla y las piezas ya fijadas. */
-function drawTablero() {
-  push();
-  noStroke();
-  fill(PALETA.panel);
-  rect(offsetX, offsetY, anchoTablero, altoTablero, 8);
-
-  stroke(PALETA.grilla);
-  strokeWeight(1);
-  for (let columna = 1; columna < COLUMNAS; columna++) {
-    const x = offsetX + columna * tamCelda;
-    line(x, offsetY, x, offsetY + altoTablero);
-  }
-  for (let fila = 1; fila < FILAS; fila++) {
-    const y = offsetY + fila * tamCelda;
-    line(offsetX, y, offsetX + anchoTablero, y);
-  }
-  pop();
-
-  for (let fila = 0; fila < FILAS; fila++) {
-    for (let columna = 0; columna < COLUMNAS; columna++) {
-      const tipo = juego.tablero.matriz[fila][columna];
-      if (tipo) drawCelda(columna, fila, COLORES_PIEZA[tipo]);
-    }
-  }
-}
-
-/** Dibuja la pieza actual y su proyección (fantasma) en el fondo. */
-function drawPieza() {
-  const pieza = juego.piezaActual;
-  if (!pieza || juego.gameOver) return;
-
-  // Fantasma: dónde va a aterrizar la pieza si no se toca nada.
-  const caida = juego.calcularCaida();
-  if (caida > 0) {
-    for (const celda of pieza.celdas(pieza.x, pieza.y + caida)) {
-      drawCelda(celda.x, celda.y, pieza.color, 45);
-    }
-  }
-
-  for (const celda of pieza.celdas()) {
-    drawCelda(celda.x, celda.y, pieza.color);
-  }
-}
-
-/**
- * Dibuja una celda del tablero en coordenadas de grilla.
- * @param {number} columna
- * @param {number} fila
- * @param {string} colorHex
- * @param {number} [opacidad] 0..255
- */
-function drawCelda(columna, fila, colorHex, opacidad = 255) {
-  if (columna < 0 || columna >= COLUMNAS || fila < 0 || fila >= FILAS) return;
-
-  const x = offsetX + columna * tamCelda;
-  const y = offsetY + fila * tamCelda;
-  const relleno = color(colorHex);
-  relleno.setAlpha(opacidad);
-
-  push();
-  strokeWeight(1);
-  stroke(255, 255, 255, opacidad * 0.18);
-  fill(relleno);
-  rect(x + 1, y + 1, tamCelda - 2, tamCelda - 2, Math.max(2, tamCelda * 0.13));
-
-  // Brillo superior: da volumen sin necesitar imágenes.
-  noStroke();
-  fill(255, 255, 255, opacidad * 0.16);
-  rect(
-    x + tamCelda * 0.16,
-    y + tamCelda * 0.13,
-    tamCelda * 0.68,
-    Math.max(1, tamCelda * 0.1),
-    2
-  );
-  pop();
-}
-
-/**
- * Traduce el teclado a la API del motor. Este es el único punto de entrada
- * del teclado: por eso handpose puede usar exactamente las mismas funciones.
- */
-function keyPressed() {
-  // Cualquier tecla cuenta como interacción para desbloquear el audio.
-  iniciarAudio();
-
-  // Pausa: no depende del estado de la partida.
-  if (key === 'p' || key === 'P') {
-    if (!pausaPulsada) {
-      juego.alternarPausa();
-      pausaPulsada = true;
-    }
-    return false; // evita el comportamiento por defecto del navegador
-  }
-
-  // En game over sólo tiene sentido reiniciar.
-  if (juego.gameOver) {
-    if ((key === 'r' || key === 'R' || keyCode === ENTER) && !reinicioPulsado) {
-      juego.reiniciar();
-      reinicioPulsado = true;
-      reanudarAudio();
-    }
-    return false;
-  }
-
-  // Mientras está pausado, el motor ya ignora las acciones.
-  switch (keyCode) {
-    case LEFT_ARROW:
-      juego.moverIzquierda();
-      break;
-    case RIGHT_ARROW:
-      juego.moverDerecha();
-      break;
-    case DOWN_ARROW:
-      juego.bajarRapido();
-      break;
-    case UP_ARROW:
-      juego.rotar();
-      break;
-    default:
-      // Alternativas WASD y ESPACIO (todas rotan, como pide la Fase 1).
-      if (key === 'a' || key === 'A') juego.moverIzquierda();
-      else if (key === 'd' || key === 'D') juego.moverDerecha();
-      else if (key === 's' || key === 'S') juego.bajarRapido();
-      else if (key === 'w' || key === 'W' || key === ' ') juego.rotar();
-      break;
-  }
-
-  return false;
-}
-
-function keyReleased() {
-  if (key === 'p' || key === 'P') pausaPulsada = false;
-  if (key === 'r' || key === 'R' || keyCode === ENTER) reinicioPulsado = false;
-}
-
-/**
- * p5 llama a mousePressed con cualquier clic sobre el canvas.
- * Se usa para desbloquear el audio y arrancar la música.
- */
-function mousePressed() {
-  iniciarAudio();
 }
 
 /* ============================================================================

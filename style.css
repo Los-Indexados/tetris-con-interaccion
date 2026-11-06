@@ -1,9 +1,8 @@
-<<<<<<< HEAD
 /* ============================================================================
- * TETRIS CON INTERACCIÃ“N â€” Estilos de la interfaz (Fase 2.2.1)
+ * TETRIS CON INTERACCIÓN — Estilos de la interfaz (Fase 2.2.1)
  * ----------------------------------------------------------------------------
- * Todo estÃ¡ prefijado con .tui- / --tui- y encapsulado bajo .tui-app para no
- * filtrar estilos hacia otros mÃ³dulos. No se define nada sobre body, html ni
+ * Todo está prefijado con .tui- / --tui- y encapsulado bajo .tui-app para no
+ * filtrar estilos hacia otros módulos. No se define nada sobre body, html ni
  * selectores globales.
  * ==========================================================================*/
 
@@ -32,6 +31,7 @@
     --tui-panel: rgba(10, 13, 22, 0.72);
     --tui-panel-solid: #0D1120;
     --tui-void: #05070F;
+    --tui-danger: #FF4D6D;
 
     --tui-accent: var(--tui-blue);
     --tui-bg-scenario: #0B1033;
@@ -53,15 +53,8 @@
     user-select: none;
 }
 
-/* El color de selecciÃ³n y de los controles es siempre el mismo (Electric
-   Blue). Del escenario solo cambia el fondo. */
-.tui-app[data-tui-scenario="teclado"] {
-    --tui-bg-scenario: #0B1033;
-}
-
-.tui-app[data-tui-scenario="edificio"] {
-    --tui-bg-scenario: #2A0C06;
-}
+/* El color de selección y de los controles es siempre el mismo (Electric
+   Blue). El escenario solo aporta la imagen de fondo del tablero. */
 
 /* Grilla de fondo, solo decorativa. */
 .tui-app::before {
@@ -78,7 +71,7 @@
     mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 78%);
 }
 
-/* Efecto CRT: lÃ­neas de barrido + viÃ±eta. */
+/* Efecto CRT: líneas de barrido + viñeta. */
 .tui-crt {
     position: absolute;
     inset: 0;
@@ -118,7 +111,8 @@
 }
 
 .tui-app[data-tui-screen="game"] .tui-screen--game,
-.tui-app[data-tui-screen="paused"] .tui-screen--game {
+.tui-app[data-tui-screen="paused"] .tui-screen--game,
+.tui-app[data-tui-screen="over"] .tui-screen--game {
     display: flex;
 }
 
@@ -126,7 +120,11 @@
     display: grid;
 }
 
-/* ---------------------------------------------------------------- tipografÃ­a */
+.tui-app[data-tui-screen="over"] .tui-over {
+    display: grid;
+}
+
+/* ---------------------------------------------------------------- tipografía */
 
 .tui-kicker {
     margin: 0;
@@ -261,7 +259,7 @@
     font-size: 10px;
 }
 
-/* Colores de los botones de acciÃ³n, al estilo consola. */
+/* Colores de los botones de acción, al estilo consola. */
 .tui-btn[data-tui-control="a"] {
     color: var(--tui-lime);
     border-color: rgba(57, 227, 74, 0.6);
@@ -353,7 +351,7 @@
     color: var(--tui-ink-dim);
 }
 
-/* DecoraciÃ³n: celdas flotantes. */
+/* Decoración: celdas flotantes. */
 .tui-deco {
     position: absolute;
     inset: 0;
@@ -381,7 +379,7 @@
 .tui-deco__cell:nth-child(7) { left: 4%;  top: 46%; color: var(--tui-fuchsia);   animation-delay: -7.6s; }
 .tui-deco__cell:nth-child(8) { left: 96%; top: 40%; color: var(--tui-lime);      animation-delay: -0.6s; }
 
-/* --------------------------------------------------- selecciÃ³n de escenario */
+/* --------------------------------------------------- selección de escenario */
 
 .tui-screen--scenarios {
     align-items: center;
@@ -393,13 +391,13 @@
     flex-direction: column;
     align-items: center;
     gap: clamp(16px, 3vh, 28px);
-    width: min(820px, 100%);
+    width: min(1080px, 100%);
 }
 
 .tui-scenarios {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: clamp(14px, 2vw, 26px);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: clamp(12px, 1.4vw, 20px);
     width: 100%;
 }
 
@@ -433,31 +431,44 @@
     box-shadow: 0 0 0 2px var(--tui-accent), var(--tui-glow);
 }
 
+/* Miniatura del escenario: misma imagen que usa el tablero, con un velo para
+   que el nombre y el borde de selección sigan leyéndose. */
 .tui-scenario__preview {
     display: block;
     width: 100%;
     aspect-ratio: 4 / 3;
+    background-color: #0A0D16;
+    background-image:
+        linear-gradient(rgba(5, 7, 15, 0.35), rgba(5, 7, 15, 0.6)),
+        var(--tui-thumb, none);
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat, no-repeat;
     border: 2px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.7);
+    transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
-.tui-scenario[data-tui-scenario-id="teclado"] .tui-scenario__preview {
-    background: #0B1033;
-    box-shadow: inset 0 0 60px rgba(47, 85, 245, 0.55);
+.tui-scenario[data-tui-scenario-id="catedral"] {
+    --tui-thumb: url("Catedral.png");
 }
 
-.tui-scenario[data-tui-scenario-id="edificio"] .tui-scenario__preview {
-    background: #2A0C06;
-    box-shadow: inset 0 0 60px rgba(255, 86, 34, 0.5);
+.tui-scenario[data-tui-scenario-id="puente-roto"] {
+    --tui-thumb: url("Puente%20Roto.png");
 }
 
-.tui-scenario[data-tui-scenario-id="teclado"].tui-scenario--selected .tui-scenario__preview {
-    box-shadow: inset 0 0 60px rgba(47, 85, 245, 0.55), 0 0 24px rgba(47, 85, 245, 0.6);
+.tui-scenario[data-tui-scenario-id="santa-ana"] {
+    --tui-thumb: url("Santa%20Ana.png");
 }
 
-.tui-scenario[data-tui-scenario-id="edificio"].tui-scenario--selected .tui-scenario__preview {
-    box-shadow: inset 0 0 60px rgba(255, 86, 34, 0.5), 0 0 24px rgba(255, 86, 34, 0.6);
+.tui-scenario[data-tui-scenario-id="tranvia"] {
+    --tui-thumb: url("Tranv%C3%ADa.png");
 }
 
+.tui-scenario--selected .tui-scenario__preview {
+    border-color: var(--tui-accent);
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.7), 0 0 18px rgba(47, 85, 245, 0.5);
+}
 .tui-scenario__index {
     font-size: 9px;
     letter-spacing: 0.3em;
@@ -590,20 +601,59 @@
 }
 
 .tui-board {
+    --tui-scene: none;
+
+    position: relative;
     height: 100%;
-    aspect-ratio: 1 / 2;
+    aspect-ratio: 1 / 1;
     max-width: 100%;
     background-color: var(--tui-void);
     background-image:
-        linear-gradient(to right, rgba(47, 85, 245, 0.16) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(47, 85, 245, 0.16) 1px, transparent 1px);
-    background-size: 10% 5%;
+        linear-gradient(to right, rgba(47, 85, 245, 0.18) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(47, 85, 245, 0.18) 1px, transparent 1px),
+        linear-gradient(rgba(5, 7, 15, 0.66), rgba(5, 7, 15, 0.66)),
+        var(--tui-scene);
+    background-size: 6.25% 6.25%, 6.25% 6.25%, cover, cover;
+    background-position: 0 0, 0 0, center, center;
+    background-repeat: repeat, repeat, no-repeat, no-repeat;
     border: 3px solid var(--tui-accent);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), var(--tui-glow),
         inset 0 0 60px rgba(0, 0, 0, 0.9);
 }
 
-/* Preparado para recibir el canvas de p5 sin conocer su tamaÃ±o. */
+/* Imagen del escenario: solo dentro del recuadro del tablero. */
+.tui-app[data-tui-scenario="catedral"] .tui-board {
+    --tui-scene: url("Catedral.png");
+}
+
+.tui-app[data-tui-scenario="puente-roto"] .tui-board {
+    --tui-scene: url("Puente%20Roto.png");
+}
+
+.tui-app[data-tui-scenario="santa-ana"] .tui-board {
+    --tui-scene: url("Santa%20Ana.png");
+}
+
+.tui-app[data-tui-scenario="tranvia"] .tui-board {
+    --tui-scene: url("Tranv%C3%ADa.png");
+}
+
+/* Efecto de pantalla CRT sobre el tablero: líneas y viñeta por encima del
+   canvas, con un parpadeo muy leve. */
+.tui-board::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background:
+        repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.26) 0 1px, transparent 1px 3px),
+        radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.6) 100%);
+    opacity: 0.55;
+    animation: tui-flicker 5s ease-in-out infinite;
+}
+
+/* Preparado para recibir el canvas de p5 sin conocer su tamaño. */
 .tui-board > *,
 .tui-next > * {
     display: block;
@@ -663,6 +713,7 @@
 }
 
 .tui-next {
+    position: relative;
     aspect-ratio: 1 / 1;
     background-color: var(--tui-void);
     background-image:
@@ -672,7 +723,31 @@
     border: 2px dashed rgba(47, 85, 245, 0.35);
 }
 
-/* Espacio reservado para la cÃ¡mara de handpose (inferior derecha). */
+
+/* Vista previa de la pieza: grilla 4x4 generada por sketch.js. */
+.tui-next__grid {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 2px;
+    padding: 7%;
+}
+
+.tui-next__cell {
+    display: block;
+    border-radius: 2px;
+}
+
+.tui-next__cell--I { background: #00E5FF; }
+.tui-next__cell--J { background: #3B6BF5; }
+.tui-next__cell--L { background: #FF9F1A; }
+.tui-next__cell--O { background: #FFE23D; }
+.tui-next__cell--S { background: #3DDC84; }
+.tui-next__cell--T { background: #B45CFF; }
+.tui-next__cell--Z { background: #FF4D6D; }
+/* Espacio reservado para la cámara de handpose (inferior derecha). */
 .tui-camera {
     position: relative;
     margin-top: auto;
@@ -731,7 +806,7 @@
     color: var(--tui-ink-dim);
 }
 
-/* Panel de controles: columna izquierda, orden vertical PAUSA â†’ cruceta â†’ A/B. */
+/* Panel de controles: columna izquierda, orden vertical PAUSA → cruceta → A/B. */
 .tui-console__controls {
     grid-area: controls;
     display: flex;
@@ -755,11 +830,11 @@
 }
 
 /* Cruceta: una sola pieza con forma de cruz (clip-path).
-   Dos capas separadas a propÃ³sito:
+   Dos capas separadas a propósito:
      .tui-pad-base  -> sombra proyectada. No se transforma, no gira.
      .tui-pad-shell -> la pieza que bascula sobre su eje.
-   Si la sombra viviera en el elemento que rota, girarÃ­a junto con la cruceta
-   y el efecto se verÃ­a falso. */
+   Si la sombra viviera en el elemento que rota, giraría junto con la cruceta
+   y el efecto se vería falso. */
 .tui-pad-base {
     --tui-pad-cell: clamp(42px, 4.8vh, 54px);
     --tui-cross: polygon(
@@ -779,7 +854,7 @@
 }
 
 /* Canto de la pieza: la "pared" que se ve cuando la cruceta se levanta.
-   Queda fija para que el volumen no gire con la inclinaciÃ³n. */
+   Queda fija para que el volumen no gire con la inclinación. */
 .tui-pad-base::before {
     content: "";
     position: absolute;
@@ -948,7 +1023,7 @@
     flex: 0 0 auto;
 }
 
-/* VentilaciÃ³n, LED y etiqueta, al pie del panel. */
+/* Ventilación, LED y etiqueta, al pie del panel. */
 .tui-controls__meta {
     display: flex;
     flex-direction: column;
@@ -984,7 +1059,8 @@
 }
 /* --------------------------------------------------------------- pausa ---- */
 
-.tui-pause {
+.tui-pause,
+.tui-over {
     position: absolute;
     inset: 0;
     z-index: 40;
@@ -1030,6 +1106,93 @@
     min-width: 0;
 }
 
+
+/* ------------------------------------------------------------ game over --- */
+
+/* En este menú el acento es rojo: botones, hover, foco y presión. */
+.tui-over {
+    --tui-accent: var(--tui-danger);
+    --tui-glow: 0 0 14px rgba(255, 77, 109, 0.55);
+}
+
+.tui-over .tui-title {
+    color: var(--tui-danger);
+    text-shadow: 0 0 18px rgba(255, 77, 109, 0.65);
+}
+
+.tui-over .tui-btn {
+    background: linear-gradient(180deg, #3A2230 0%, #1E1220 100%);
+    border-color: rgba(255, 77, 109, 0.38);
+}
+
+.tui-over .tui-btn:active,
+.tui-over .tui-btn[data-tui-pressed="true"] {
+    background: linear-gradient(180deg, #2A1119 0%, #170A10 100%);
+}
+
+.tui-over .tui-btn:focus-visible {
+    outline-color: var(--tui-danger);
+}
+
+.tui-over .tui-btn--primary {
+    background: linear-gradient(180deg, #FF7A8F 0%, var(--tui-danger) 55%, #A81C33 100%);
+    border-color: var(--tui-danger);
+    box-shadow:
+        0 4px 0 rgba(0, 0, 0, 0.75),
+        0 8px 20px rgba(0, 0, 0, 0.45),
+        0 0 18px var(--tui-danger),
+        inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.tui-over .tui-btn--primary:hover {
+    box-shadow:
+        0 5px 0 rgba(0, 0, 0, 0.75),
+        0 10px 24px rgba(0, 0, 0, 0.5),
+        0 0 28px var(--tui-danger),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.tui-over .tui-btn--primary:active,
+.tui-over .tui-btn--primary[data-tui-pressed="true"] {
+    background: var(--tui-danger);
+    filter: brightness(0.82);
+    box-shadow:
+        inset 0 3px 10px rgba(0, 0, 0, 0.55),
+        0 0 18px var(--tui-danger);
+}
+
+.tui-over .tui-pause__panel {
+    border-color: var(--tui-danger);
+    box-shadow: 0 0 40px rgba(255, 77, 109, 0.45), inset 0 0 40px rgba(0, 0, 0, 0.8);
+}
+
+.tui-over__score {
+    width: 100%;
+    margin-top: 4px;
+    padding: 10px 12px;
+    background: #04060C;
+    border: 2px solid rgba(255, 77, 109, 0.55);
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.9);
+    text-align: center;
+}
+
+.tui-over__score-label {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-over__score-value {
+    display: block;
+    margin-top: 4px;
+    font-size: clamp(22px, 3vw, 30px);
+    letter-spacing: 0.14em;
+    color: var(--tui-danger);
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 14px rgba(255, 77, 109, 0.7);
+}
+
 /* ------------------------------------------------------------ animaciones -- */
 
 @keyframes tui-bob {
@@ -1053,6 +1216,13 @@
     50%, 100% { opacity: 0.15; }
 }
 
+@keyframes tui-flicker {
+    0%, 100% { opacity: 0.52; }
+    47%      { opacity: 0.58; }
+    50%      { opacity: 0.4; }
+    53%      { opacity: 0.58; }
+}
+
 @keyframes tui-pop {
     from { opacity: 0; transform: scale(0.96); }
     to   { opacity: 1; transform: scale(1); }
@@ -1060,10 +1230,19 @@
 
 /* ------------------------------------------------------------- responsive -- */
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
+    .tui-scenarios {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
     .tui-scenarios {
         grid-template-columns: 1fr;
     }
+}
+
+@media (max-width: 900px) {
 
     .tui-console {
         grid-template-columns: 1fr;
@@ -1134,21 +1313,20 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
     }
-=======
-/* Canvas a pantalla completa: sin márgenes del navegador ni scrollbars. */
+}
+
+/* ------------------------------------------------------------ base global -- */
+
+/* Lo unico global de la hoja: el lienzo ocupa la ventana entera.
+   Todo lo demas vive bajo .tui-app. */
 html,
 body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  background: #0b0f17;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #0A0D16;
 }
 
-#juego {
-  display: block;
-}
-
-canvas {
-  display: block;
->>>>>>> 78f4acffb8628ff943c87fc6e5f3b1e0f0d1edca
+.tui-board canvas {
+    display: block;
 }
