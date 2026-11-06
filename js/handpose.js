@@ -41,6 +41,24 @@ const CONFIG = {
   
   // Umbrales para contacto dedo-palma (click)
   FINGER_PALM_CONTACT_THRESHOLD: 0.08, // Distancia máxima entre punta y palma
+  
+  // Configuración de sostenimiento (hold)
+  HOLD_ENABLED: true, // Activar sostenimiento
+  HOLD_DURATION_MS: {
+    'PUÑO': 800, // Pausar
+    'ÍNDICE_CLICK': 600, // Click (si se usa sostenimiento)
+  },
+  HOLD_TOLERANCE_MS: 150, // Tolerancia de fallo momentáneo del detector
+  HOLD_COOLDOWN_MS: 1500, // Cooldown después de confirmar
+  
+  // Gestos con sostenimiento (requieren hold + barra de progreso)
+  GESTURES_WITH_HOLD: ['PUÑO', 'ÍNDICE_CLICK'],
+  
+  // Gestos instantáneos (sin hold, solo cooldown corto)
+  GESTURES_INSTANT: ['PULGAR_ARRIBA', 'PULGAR_IZQUIERDA'],
+  
+  // Gestos continuos (sin hold, se activan mientras duren)
+  GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'ÍNDICE_LEVANTADO', 'DOS_MANOS'],
 };
 
 // ============================================================================
@@ -79,6 +97,16 @@ const HandPose = (() => {
       ignored: null, // Mano ignorada por conflicto
       lastUpdate: 0, // Timestamp del último gesto
     },
+    hold: {
+      active: false, // Si hay un hold en curso
+      gesture: null, // Qué gesto se está sosteniendo
+      owner: null, // Mano dueña del hold
+      startTime: 0, // Cuándo empezó
+      progress: 0, // 0-1
+      confirmed: false, // Si ya se confirmó
+      lastDetectedTime: 0, // Última vez que se detectó el gesto (tolerancia)
+      cooldownUntil: 0, // Cooldown hasta este timestamp
+    },
   };
 
   // Callbacks para comunicación con el resto del equipo
@@ -87,6 +115,7 @@ const HandPose = (() => {
     onCameraActive: null,
     onHandsUpdate: null,
     onGestureDetected: null,
+    onGestureConfirmed: null,
   };
 
   // =========================================================================
@@ -205,13 +234,19 @@ const HandPose = (() => {
   let modelLoadRetries = 0;
   const MAX_MODEL_LOAD_RETRIES = 3;
 
+  let waitCount = 0;
   async function initHandDetection() {
-    // Esperar a que TensorFlow.js esté disponible
-    if (typeof tf === 'undefined' || typeof handPoseDetection === 'undefined') {
-      console.log('⏳ Esperando TensorFlow.js...');
+    // Esperar a que TensorFlow.js y handpose estén disponibles
+    if (typeof tf === 'undefined' || typeof handpose === 'undefined') {
+      waitCount++;
+      if (waitCount % 4 === 0) { // Log cada 2 segundos
+        console.log('⏳ Esperando TensorFlow.js y handpose... (' + (waitCount / 2) + 's)');
+      }
       setTimeout(initHandDetection, 500);
       return;
     }
+    
+    waitCount = 0;
 
     // Verificar que el video esté listo
     if (!state.camera.video || !state.camera.isActive) {
@@ -221,18 +256,11 @@ const HandPose = (() => {
     }
 
     try {
-      console.log('🚀 Cargando modelo handPose con TensorFlow.js...');
+      console.log('🚀 Cargando modelo handPose...');
       
-      // Usar el detector de hand-pose-detection
-      const detector = await handPoseDetection.createDetector(
-        handPoseDetection.SupportedModels.MediaPipeHands,
-        {
-          runtime: 'tfjs',
-          modelType: 'full',
-        }
-      );
-
-      onHandModelReady(null, detector);
+      // Cargar modelo de TensorFlow.js
+      const detector = await handpose.load();
+      onHandModelReady(detector);
     } catch (error) {
       console.error('❌ Error al cargar modelo handPose:', error.message);
       
@@ -245,14 +273,14 @@ const HandPose = (() => {
     }
   }
 
-  function onHandModelReady(error, detector) {
-    if (error) {
-      console.error('❌ Error al cargar modelo:', error);
-      return;
-    }
-
+  function onHandModelReady(detector) {
     if (!detector) {
       console.error('❌ Detector no disponible');
+      
+      if (modelLoadRetries < MAX_MODEL_LOAD_RETRIES) {
+        modelLoadRetries++;
+        setTimeout(initHandDetection, 2000);
+      }
       return;
     }
 
@@ -276,13 +304,10 @@ const HandPose = (() => {
     }
 
     try {
-      // hand-pose-detection: detectHands devuelve Promesa
+      // TensorFlow.js handpose: estimateHands
       const videoSource = state.camera.video.elt || state.camera.video;
-      const hands = await state.detection.model.estimateHands(videoSource, {
-        flipHorizontal: false,
-      });
-
-      onHandsEstimated(hands);
+      const predictions = await state.detection.model.estimateHands(videoSource, false);
+      onHandsEstimated(predictions);
     } catch (error) {
       console.error('Error en detección:', error.message);
     }
@@ -291,9 +316,9 @@ const HandPose = (() => {
     requestAnimationFrame(detectHands);
   }
 
-  function onHandsEstimated(hands) {
-    // hand-pose-detection devuelve array de manos
-    let handsList = Array.isArray(hands) ? hands : [];
+  function onHandsEstimated(predictions) {
+    // TensorFlow.js handpose devuelve array de predicciones
+    let handsList = Array.isArray(predictions) ? predictions : [];
 
     if (!handsList || handsList.length === 0) {
       state.detection.hands = [];
@@ -338,11 +363,9 @@ const HandPose = (() => {
 
     // Procesar cada mano detectada
     const processedHands = detectedHands.map((hand) => {
-      // hand-pose-detection devuelve keypoints como array de objetos {x, y, z, name}
-      const landmarksPixels = (hand.keypoints || []).map((point) => {
-        const x = point.x || 0;
-        const y = point.y || 0;
-        return [x, y];
+      // TensorFlow.js handpose devuelve landmarks como array de arrays [x, y]
+      const landmarksPixels = (hand.landmarks || []).map((point) => {
+        return [point[0], point[1]];
       });
 
       // Normalizar coordenadas a rango [0, 1]
@@ -358,11 +381,14 @@ const HandPose = (() => {
         palmLandmarks.reduce((sum, p) => sum + p[1], 0) / palmLandmarks.length,
       ];
 
+      // Determinar lado (handpose no lo proporciona, usar heurística)
+      const handedness = hand.handedness || (hand.landmarks[0][0] < state.camera.width / 2 ? 'Left' : 'Right');
+
       return {
-        side: hand.handedness || 'unknown',
+        side: handedness,
         landmarks: landmarksNormalized,
         palmCenter: palmCenter,
-        confidence: hand.score || 0,
+        confidence: 0.9, // handpose no proporciona confianza
       };
     });
 
@@ -375,6 +401,12 @@ const HandPose = (() => {
 
     // Detectar gestos
     detectAllGestures(smoothedHands, currentTime);
+
+    // Procesar sostenimiento (hold)
+    processGesturesWithHold(currentTime);
+
+    // Actualizar progreso de hold
+    updateHoldProgress(currentTime);
 
     // Guardar manos detectadas (ya suavizadas)
     state.detection.hands = smoothedHands;
@@ -855,6 +887,140 @@ const HandPose = (() => {
   }
 
   // =========================================================================
+  // SECCIÓN: SOSTENIMIENTO (HOLD)
+  // =========================================================================
+  // Gestiona sostenimiento de gestos, progreso y cooldown.
+  // Requiere mantener gesto durante tiempo configurable para confirmar.
+
+  function updateHoldProgress(currentTime) {
+    if (!CONFIG.HOLD_ENABLED) return;
+
+    const hold = state.hold;
+
+    // Si no hay hold activo, nada que hacer
+    if (!hold.active) {
+      return;
+    }
+
+    // Verificar tolerancia: si el gesto desapareció hace más de la tolerancia, cancelar hold
+    const timeSinceLastDetected = currentTime - hold.lastDetectedTime;
+    if (timeSinceLastDetected > CONFIG.HOLD_TOLERANCE_MS) {
+      // Reiniciar hold desde cero
+      hold.active = false;
+      hold.progress = 0;
+      hold.confirmed = false;
+      hold.gesture = null;
+      hold.owner = null;
+      if (CONFIG.DEBUG) {
+        console.log('❌ Hold cancelado por timeout de tolerancia');
+      }
+      return;
+    }
+
+    // Calcular progreso (0 a 1)
+    const holdDuration = CONFIG.HOLD_DURATION_MS[hold.gesture] || 1000;
+    const elapsed = currentTime - hold.startTime;
+    hold.progress = Math.min(1, elapsed / holdDuration);
+
+    // Confirmar si alcanzó 100%
+    if (hold.progress >= 1 && !hold.confirmed) {
+      hold.confirmed = true;
+      hold.cooldownUntil = currentTime + CONFIG.HOLD_COOLDOWN_MS;
+
+      // Emitir evento
+      if (callbacks.onGestureConfirmed) {
+        callbacks.onGestureConfirmed({
+          gesture: hold.gesture,
+          owner: hold.owner,
+        });
+      }
+
+      if (CONFIG.DEBUG) {
+        console.log('✅ Gesto confirmado: ' + hold.gesture + ' (Dueña: ' + hold.owner + ')');
+      }
+    }
+  }
+
+  // Iniciar o continuar hold con un gesto
+  function startOrContinueHold(gesture, owner, currentTime) {
+    const hold = state.hold;
+
+    // Verificar cooldown
+    if (currentTime < hold.cooldownUntil) {
+      return; // En cooldown, ignorar
+    }
+
+    // Si ya hay un hold activo del mismo gesto y dueña, continuar
+    if (hold.active && hold.gesture === gesture && hold.owner === owner) {
+      hold.lastDetectedTime = currentTime;
+      return;
+    }
+
+    // Si es un gesto diferente o dueña diferente, cancelar y empezar nuevo
+    if (hold.active && (hold.gesture !== gesture || hold.owner !== owner)) {
+      hold.active = false;
+      hold.progress = 0;
+      hold.confirmed = false;
+    }
+
+    // Iniciar nuevo hold
+    if (!hold.active) {
+      hold.active = true;
+      hold.gesture = gesture;
+      hold.owner = owner;
+      hold.startTime = currentTime;
+      hold.lastDetectedTime = currentTime;
+      hold.progress = 0;
+      hold.confirmed = false;
+
+      if (CONFIG.DEBUG) {
+        console.log('⏱️ Hold iniciado: ' + gesture + ' (Dueña: ' + owner + ')');
+      }
+    }
+  }
+
+  // Procesar gestos detectados: determinar si necesitan sostenimiento
+  function processGesturesWithHold(currentTime) {
+    if (!CONFIG.HOLD_ENABLED) return;
+
+    const gesture = state.gestures.current;
+    const owner = state.gestures.owner;
+
+    if (!gesture || !owner) {
+      // No hay gesto detectado, detener hold si está activo
+      if (state.hold.active) {
+        state.hold.active = false;
+        state.hold.progress = 0;
+        state.hold.confirmed = false;
+        state.hold.gesture = null;
+        state.hold.owner = null;
+      }
+      return;
+    }
+
+    // Verificar si es gesto con sostenimiento
+    if (CONFIG.GESTURES_WITH_HOLD.includes(gesture)) {
+      startOrContinueHold(gesture, owner, currentTime);
+    }
+    // Gestos instantáneos: confirmar de inmediato con cooldown corto
+    else if (CONFIG.GESTURES_INSTANT.includes(gesture)) {
+      // Verificar cooldown
+      if (currentTime >= state.hold.cooldownUntil) {
+        if (callbacks.onGestureConfirmed) {
+          callbacks.onGestureConfirmed({
+            gesture: gesture,
+            owner: owner,
+          });
+        }
+        state.hold.cooldownUntil = currentTime + 300; // Cooldown corto para instant
+        if (CONFIG.DEBUG) {
+          console.log('⚡ Gesto instantáneo: ' + gesture);
+        }
+      }
+    }
+  }
+
+  // =========================================================================
   // SECCIÓN: DEBUG VISUAL
   // =========================================================================
   // Dibuja los 21 puntos clave y el esqueleto de las manos en el canvas.
@@ -989,6 +1155,13 @@ const HandPose = (() => {
           ignored: state.gestures.ignored,
           lastUpdate: state.gestures.lastUpdate,
         },
+        hold: {
+          active: state.hold.active,
+          gesture: state.hold.gesture,
+          owner: state.hold.owner,
+          progress: state.hold.progress,
+          confirmed: state.hold.confirmed,
+        },
       };
     },
 
@@ -1013,6 +1186,8 @@ const HandPose = (() => {
         callbacks.onHandsUpdate = callback;
       } else if (event === 'gestureDetected') {
         callbacks.onGestureDetected = callback;
+      } else if (event === 'gestureConfirmed') {
+        callbacks.onGestureConfirmed = callback;
       }
     },
 
@@ -1094,6 +1269,18 @@ const HandPose = (() => {
         deadzone: CONFIG.DEADZONE_THRESHOLD,
         disappearanceTolerance: CONFIG.HAND_DISAPPEARANCE_TOLERANCE_MS,
       };
+    },
+
+    // Cambiar modo (menú ↔ juego) - cancela sostenimiento en curso
+    setGameMode: function (isGameMode) {
+      // Cancelar hold activo
+      state.hold.active = false;
+      state.hold.progress = 0;
+      state.hold.confirmed = false;
+      state.hold.gesture = null;
+      state.hold.owner = null;
+      
+      console.log('🎮 Modo: ' + (isGameMode ? 'JUEGO' : 'MENÚ'));
     },
   };
 })();
