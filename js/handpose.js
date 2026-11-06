@@ -59,6 +59,15 @@ const CONFIG = {
   
   // Gestos continuos (sin hold, se activan mientras duren)
   GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'ÍNDICE_LEVANTADO', 'DOS_MANOS'],
+
+  // Configuración de control de movimiento
+  MOVEMENT_CONTROL_ENABLED: true,
+  MOVEMENT_COLUMNS: 16, // Número de columnas (ancho del tablero)
+  MOVEMENT_EDGE_MARGIN: 0.1, // Ignorar 10% de cada borde
+  MOVEMENT_HYSTERESIS: 0.5, // Histéresis entre columnas (0-1, como % del ancho de columna)
+  MOVEMENT_MODE_INITIAL: 'menu', // Modo inicial: 'menu' o 'juego'
+  MOVEMENT_PAUSE_ON_DOUBLE_HAND: true, // Pausar movimiento cuando hay 2 manos (caída rápida)
+  MOVEMENT_DOUBLE_HAND_TIMEOUT: 150, // Retardo en ms antes de emitir 'caida:fin'
 };
 
 // ============================================================================
@@ -108,12 +117,19 @@ const HandPose = (() => {
       cooldownUntil: 0, // Cooldown hasta este timestamp
     },
     ui: {
-      mode: 'juego', // 'menu' o 'juego'
+      mode: CONFIG.MOVEMENT_MODE_INITIAL, // 'menu' o 'juego'
       cursorVisible: false, // Si cursor está visible
       cursorX: 0, // Posición X normalizada (0-1)
       cursorY: 0, // Posición Y normalizada (0-1)
       lastConfirmedGesture: null, // Último gesto confirmado
       dosManosCaida: false, // Si está en caída rápida (dos manos)
+    },
+    movement: {
+      currentColumn: 0, // Columna actual (0-15)
+      lastColumn: -1, // Última columna emitida en evento
+      controlHand: null, // Mano que controla el movimiento
+      doubleHandTime: 0, // Timestamp cuando se detectaron dos manos
+      pausedByDoubleHand: false, // Si está pausado por caída rápida
     },
   };
 
@@ -411,6 +427,14 @@ const HandPose = (() => {
 
     // Actualizar eventos de UI
     updateEventState();
+
+    // Actualizar control de movimiento
+    updateMovementControl();
+
+    // Dibujar debug de movimiento (si está en modo DEBUG)
+    if (CONFIG.DEBUG) {
+      drawMovementDebug();
+    }
 
     // Actualizar FPS de detección
     updateDetectionFps();
@@ -1282,12 +1306,27 @@ const HandPose = (() => {
       
       state.ui.mode = isGameMode ? 'juego' : 'menu';
       
+      // Reiniciar control de movimiento (olvidar última columna)
+      state.movement.currentColumn = Math.floor(CONFIG.MOVEMENT_COLUMNS / 2);
+      state.movement.lastColumn = -1;
+      
       this.emitEvent('modo:cambiado', {
         modo: state.ui.mode,
         timestamp: Date.now(),
       });
       
       console.log('🎮 Modo: ' + state.ui.mode);
+    },
+
+    // Cambiar modo (alternativa más explícita)
+    setMode: function (modoNuevo) {
+      // Normalizar: 'menu' o 'juego'
+      const modo = modoNuevo.toLowerCase();
+      if (modo === 'menu') {
+        this.setGameMode(false);
+      } else if (modo === 'juego') {
+        this.setGameMode(true);
+      }
     },
 
     // Obtener objeto de estado consultable para UI
@@ -1325,6 +1364,13 @@ const HandPose = (() => {
       },
       get caidaRapida() {
         return state.ui.dosManosCaida;
+      },
+      get movimiento() {
+        return {
+          columnaActual: state.movement.currentColumn,
+          manoControl: state.movement.controlHand,
+          pausado: state.movement.pausedByDoubleHand,
+        };
       },
     },
 
@@ -1505,8 +1551,195 @@ function updateEventState() {
   }
 }
 
+// =========================================================================
+// SECCIÓN: CONTROL DE MOVIMIENTO
+// =========================================================================
+// Traduce posición de mano abierta y doble mano en movimiento horizontal
+// y eventos de dirección según el modo actual (menú / juego).
+//
+// EVENTOS EMITIDOS:
+// - "mover:columna"  { columna (0-15), timestamp }  (modo JUEGO)
+// - "menu:izquierda" { timestamp }  (modo MENU)
+// - "menu:derecha"   { timestamp }  (modo MENU)
+// - "caida:inicio"   { timestamp }  (dos manos simultáneamente)
+// - "caida:fin"      { timestamp }  (con retardo de 150ms)
+//
+// EJEMPLO:
+// document.addEventListener('mover:columna', (e) => {
+//   console.log('Mover a columna:', e.detail.columna);
+// });
+
+function updateMovementControl() {
+  if (!CONFIG.MOVEMENT_CONTROL_ENABLED) {
+    return;
+  }
+
+  const now = Date.now();
+  const numColumns = CONFIG.MOVEMENT_COLUMNS;
+  const edgeMargin = CONFIG.MOVEMENT_EDGE_MARGIN;
+  const hysteresis = CONFIG.MOVEMENT_HYSTERESIS;
+
+  // Detectar si hay dos manos (caída rápida)
+  const dosManos = state.detection.hands.length === 2;
+
+  // Manejo de CAÍDA RÁPIDA (DOS MANOS)
+  if (dosManos && !state.ui.dosManosCaida) {
+    // Inicio de caída rápida
+    state.ui.dosManosCaida = true;
+    state.movement.doubleHandTime = now;
+    state.movement.pausedByDoubleHand = true;
+    HandPose.emitEvent('caida:inicio', { timestamp: now });
+    if (CONFIG.DEBUG) {
+      console.log('⬇️ CAÍDA RÁPIDA: iniciada');
+    }
+  } else if (!dosManos && state.ui.dosManosCaida) {
+    // Fin de caída rápida (con retardo)
+    const timeSinceDoubleHand = now - state.movement.doubleHandTime;
+    if (timeSinceDoubleHand > CONFIG.MOVEMENT_DOUBLE_HAND_TIMEOUT) {
+      state.ui.dosManosCaida = false;
+      state.movement.pausedByDoubleHand = false;
+      HandPose.emitEvent('caida:fin', { timestamp: now });
+      if (CONFIG.DEBUG) {
+        console.log('⬆️ CAÍDA RÁPIDA: terminada');
+      }
+    }
+  }
+
+  // Si movimiento está pausado por caída rápida, no procesar
+  if (state.movement.pausedByDoubleHand) {
+    return;
+  }
+
+  // Buscar mano con MANO_ABIERTA o movimiento horizontal
+  const controlHand = state.detection.hands.find(
+    (hand) =>
+      state.gestures.current &&
+      (state.gestures.current.includes('MANO_ABIERTA') ||
+        state.gestures.current.includes('MANO_ABIERTA_IZQUIERDA') ||
+        state.gestures.current.includes('MANO_ABIERTA_DERECHA')) &&
+      hand.side.toLowerCase() === state.gestures.owner
+  );
+
+  if (!controlHand) {
+    // Sin mano de control, no hacer nada
+    state.movement.controlHand = null;
+    return;
+  }
+
+  state.movement.controlHand = controlHand.side;
+
+  // Calcular posición X normalizada (0-1)
+  const palmX = controlHand.palmCenter[0];
+
+  // Aplicar zona útil: ignorar ~10% de cada borde
+  const usableStart = edgeMargin;
+  const usableEnd = 1 - edgeMargin;
+  const usableWidth = usableEnd - usableStart;
+
+  if (palmX < usableStart || palmX > usableEnd) {
+    // Fuera de zona útil, no emitir
+    return;
+  }
+
+  // Mapear posición X a columna (0-15)
+  const normalizedX = (palmX - usableStart) / usableWidth;
+  const columnFloat = normalizedX * (numColumns - 1);
+  const columnWidth = 1 / (numColumns - 1);
+
+  // Aplicar histéresis: solo cambiar si supera el margen
+  let newColumn = state.movement.currentColumn;
+  const hysteresisMargin = columnWidth * hysteresis;
+
+  if (columnFloat < state.movement.currentColumn - hysteresisMargin) {
+    newColumn = Math.floor(columnFloat);
+  } else if (columnFloat > state.movement.currentColumn + hysteresisMargin) {
+    newColumn = Math.ceil(columnFloat);
+  }
+
+  newColumn = Math.max(0, Math.min(numColumns - 1, newColumn));
+  state.movement.currentColumn = newColumn;
+
+  // Emitir evento solo si la columna cambió
+  if (state.movement.currentColumn !== state.movement.lastColumn) {
+    state.movement.lastColumn = state.movement.currentColumn;
+
+    if (state.ui.mode === 'juego') {
+      // Modo JUEGO: emitir mover:columna
+      HandPose.emitEvent('mover:columna', {
+        columna: state.movement.currentColumn,
+        timestamp: now,
+      });
+      if (CONFIG.DEBUG) {
+        console.log(
+          '➡️ MOVIMIENTO: columna ' + state.movement.currentColumn + ' (X: ' +
+          palmX.toFixed(3) + ')'
+        );
+      }
+    } else if (state.ui.mode === 'menu') {
+      // Modo MENÚ: emitir menu:izquierda o menu:derecha
+      if (state.movement.currentColumn < state.movement.lastColumn - 1) {
+        HandPose.emitEvent('menu:izquierda', { timestamp: now });
+        if (CONFIG.DEBUG) {
+          console.log('⬅️ MENÚ: izquierda');
+        }
+      } else if (state.movement.currentColumn > state.movement.lastColumn + 1) {
+        HandPose.emitEvent('menu:derecha', { timestamp: now });
+        if (CONFIG.DEBUG) {
+          console.log('➡️ MENÚ: derecha');
+        }
+      }
+    }
+  }
+}
+
+function drawMovementDebug() {
+  if (!CONFIG.DEBUG || !state.camera.canvas) {
+    return;
+  }
+
+  // Acceder a p5 para dibujar (si está disponible)
+  if (typeof window.p !== 'undefined') {
+    const p = window.p;
+    const numColumns = CONFIG.MOVEMENT_COLUMNS;
+    const edgeMargin = CONFIG.MOVEMENT_EDGE_MARGIN;
+    const canvasWidth = state.camera.width;
+    const canvasHeight = state.camera.height;
+
+    // Dibujar líneas de columnas
+    p.stroke(100, 100, 100);
+    p.strokeWeight(1);
+
+    const usableStart = edgeMargin * canvasWidth;
+    const usableEnd = (1 - edgeMargin) * canvasWidth;
+    const columnWidth = (usableEnd - usableStart) / (numColumns - 1);
+
+    for (let i = 0; i < numColumns; i++) {
+      const x = usableStart + i * columnWidth;
+      p.line(x, 0, x, canvasHeight);
+    }
+
+    // Resaltar columna activa
+    if (state.movement.controlHand) {
+      const activeX =
+        usableStart + state.movement.currentColumn * columnWidth;
+      p.stroke(0, 255, 0);
+      p.strokeWeight(3);
+      p.line(activeX - 10, 0, activeX - 10, canvasHeight);
+      p.line(activeX + 10, 0, activeX + 10, canvasHeight);
+    }
+
+    // Mostrar zona útil (márgenes)
+    p.stroke(200, 100, 100);
+    p.strokeWeight(2);
+    p.line(usableStart, 0, usableStart, canvasHeight);
+    p.line(usableEnd, 0, usableEnd, canvasHeight);
+  }
+}
+
 // Agregar método para actualizar eventos de UI
 HandPose._updateEventState = updateEventState;
+HandPose._updateMovementControl = updateMovementControl;
+HandPose._drawMovementDebug = drawMovementDebug;
 
 // Inicializar automáticamente cuando el DOM esté listo
 if (document.readyState === 'loading') {
