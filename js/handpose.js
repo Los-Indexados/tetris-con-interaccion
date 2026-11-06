@@ -1741,6 +1741,230 @@ HandPose._updateEventState = updateEventState;
 HandPose._updateMovementControl = updateMovementControl;
 HandPose._drawMovementDebug = drawMovementDebug;
 
+// =========================================================================
+// SECCIÓN: INTEGRACIÓN CON EL TETRIS
+// =========================================================================
+// Punto único de contacto entre el módulo de detección de manos y el juego.
+// Expone una API clara y simple para que el equipo de Tetris pueda enganchar
+// acciones de mano directamente a la lógica del juego.
+//
+// OBJETO PÚBLICO: window.HandPose
+//
+// MÉTODOS:
+// - HandPose.init()                     Inicializar (automático)
+// - HandPose.enable()                   Activar detección
+// - HandPose.disable()                  Desactivar detección
+// - HandPose.setModo('menu' | 'juego')  Cambiar modo
+// - HandPose.on(accion, callback)       Registrar listener
+// - HandPose.off(accion, callback)      Remover listener
+//
+// ACCIONES DISPONIBLES (para on() / off()):
+// 'moverIzquierda', 'moverDerecha', 'rotarHorario', 'rotarAntihorario',
+// 'pausar', 'caidaRapidaInicio', 'caidaRapidaFin', 'cursorMover',
+// 'cursorClick', 'menuIzquierda', 'menuDerecha'
+//
+// PROPIEDADES:
+// - HandPose.estado                     Objeto consultable con estado actual
+// - HandPose.config                     Referencia a CONFIG para ajustes
+//
+// EJEMPLO:
+// HandPose.setModo('juego');
+// HandPose.on('moverIzquierda', () => {
+//   console.log('Mover pieza izquierda');
+// });
+// HandPose.on('caidaRapidaInicio', () => {
+//   console.log('Caída rápida activada');
+// });
+
+const HandPoseIntegration = (() => {
+  // Mapa de listeners por acción
+  const listeners = {
+    moverIzquierda: [],
+    moverDerecha: [],
+    rotarHorario: [],
+    rotarAntihorario: [],
+    pausar: [],
+    caidaRapidaInicio: [],
+    caidaRapidaFin: [],
+    cursorMover: [],
+    cursorClick: [],
+    menuIzquierda: [],
+    menuDerecha: [],
+  };
+
+  // Estados interno
+  let isEnabled = true;
+  let lastCursorX = 0;
+  let lastCursorY = 0;
+
+  // Mapeo de eventos internos a acciones públicas
+  function setupEventListeners() {
+    // MOVER COLUMNAS (modo JUEGO)
+    document.addEventListener('mover:columna', (e) => {
+      if (!isEnabled) return;
+      
+      const columna = e.detail.columna;
+      const numColumns = CONFIG.MOVEMENT_COLUMNS;
+
+      // Comparar con columna anterior para determinar dirección
+      const midpoint = Math.floor(numColumns / 2);
+
+      if (columna < midpoint) {
+        // Izquierda
+        emit('moverIzquierda', { columna });
+      } else if (columna > midpoint) {
+        // Derecha
+        emit('moverDerecha', { columna });
+      }
+    });
+
+    // NAVEGACIÓN DE MENÚ
+    document.addEventListener('menu:izquierda', (e) => {
+      if (!isEnabled) return;
+      emit('menuIzquierda', {});
+    });
+
+    document.addEventListener('menu:derecha', (e) => {
+      if (!isEnabled) return;
+      emit('menuDerecha', {});
+    });
+
+    // CAÍDA RÁPIDA
+    document.addEventListener('caida:inicio', (e) => {
+      if (!isEnabled) return;
+      emit('caidaRapidaInicio', {});
+    });
+
+    document.addEventListener('caida:fin', (e) => {
+      if (!isEnabled) return;
+      emit('caidaRapidaFin', {});
+    });
+
+    // CURSOR: MOVER
+    document.addEventListener('cursor:mover', (e) => {
+      if (!isEnabled) return;
+      lastCursorX = e.detail.x;
+      lastCursorY = e.detail.y;
+      emit('cursorMover', { x: e.detail.x, y: e.detail.y });
+    });
+
+    // CURSOR: CLICK
+    document.addEventListener('cursor:click', (e) => {
+      if (!isEnabled) return;
+      emit('cursorClick', { x: e.detail.x, y: e.detail.y });
+    });
+
+    // GESTO CONFIRMADO: PUÑO (pausar en juego)
+    document.addEventListener('gesto:confirmado', (e) => {
+      if (!isEnabled) return;
+      if (e.detail.gesto === 'PUÑO') {
+        emit('pausar', { mano: e.detail.manoDuena });
+      }
+    });
+
+    // GESTO INSTANTÁNEO: PULGAR ARRIBA (rotación)
+    document.addEventListener('gesto:confirmado', (e) => {
+      if (!isEnabled) return;
+      if (e.detail.gesto === 'PULGAR_ARRIBA') {
+        // Detectar si es derecha (mano izquierda) o izquierda (mano derecha)
+        const mano = e.detail.manoDuena;
+        if (mano === 'left') {
+          emit('rotarHorario', { mano });
+        } else {
+          emit('rotarAntihorario', { mano });
+        }
+      }
+    });
+  }
+
+  function emit(accion, data) {
+    if (listeners[accion]) {
+      listeners[accion].forEach((callback) => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error('❌ Error en listener de "' + accion + '":', error);
+        }
+      });
+    }
+  }
+
+  return {
+    // Inicializar listeners
+    init: function () {
+      setupEventListeners();
+      if (CONFIG.DEBUG) {
+        console.log('🔌 HandPose Integration inicializado');
+      }
+    },
+
+    // Habilitar/deshabilitar
+    enable: function () {
+      isEnabled = true;
+      if (CONFIG.DEBUG) {
+        console.log('✅ HandPose habilitado');
+      }
+    },
+
+    disable: function () {
+      isEnabled = false;
+      if (CONFIG.DEBUG) {
+        console.log('❌ HandPose deshabilitado');
+      }
+    },
+
+    // Cambiar modo
+    setModo: function (modo) {
+      HandPose.setMode(modo);
+    },
+
+    // Registrar listener
+    on: function (accion, callback) {
+      if (listeners[accion]) {
+        listeners[accion].push(callback);
+        if (CONFIG.DEBUG) {
+          console.log('📌 Listener registrado: ' + accion);
+        }
+        return true;
+      } else {
+        console.warn('⚠️ Acción desconocida: ' + accion);
+        return false;
+      }
+    },
+
+    // Remover listener
+    off: function (accion, callback) {
+      if (listeners[accion]) {
+        const index = listeners[accion].indexOf(callback);
+        if (index > -1) {
+          listeners[accion].splice(index, 1);
+          if (CONFIG.DEBUG) {
+            console.log('📌 Listener removido: ' + accion);
+          }
+        }
+      }
+    },
+
+    // Obtener estado
+    get estado() {
+      return HandPose.estado;
+    },
+
+    // Obtener referencia a CONFIG
+    get config() {
+      return CONFIG;
+    },
+
+    // Obtener posición actual del cursor
+    get cursor() {
+      return { x: lastCursorX, y: lastCursorY };
+    },
+  };
+})();
+
+// Inicializar integración
+HandPoseIntegration.init();
+
 // Inicializar automáticamente cuando el DOM esté listo
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
@@ -1750,5 +1974,10 @@ if (document.readyState === 'loading') {
   HandPose.init();
 }
 
-// Exponer en ventana global para debugging
+// Exponer en ventana global
 window.HandPose = HandPose;
+window.HandPoseIntegration = HandPoseIntegration;
+
+// Para compatibilidad y acceso más simple desde el equipo de Tetris:
+// Pueden usar window.HandPose.on() directamente si lo prefieren
+Object.assign(HandPose, HandPoseIntegration);
