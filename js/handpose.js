@@ -107,6 +107,14 @@ const HandPose = (() => {
       lastDetectedTime: 0, // Última vez que se detectó el gesto (tolerancia)
       cooldownUntil: 0, // Cooldown hasta este timestamp
     },
+    ui: {
+      mode: 'juego', // 'menu' o 'juego'
+      cursorVisible: false, // Si cursor está visible
+      cursorX: 0, // Posición X normalizada (0-1)
+      cursorY: 0, // Posición Y normalizada (0-1)
+      lastConfirmedGesture: null, // Último gesto confirmado
+      dosManosCaida: false, // Si está en caída rápida (dos manos)
+    },
   };
 
   // Callbacks para comunicación con el resto del equipo
@@ -236,11 +244,11 @@ const HandPose = (() => {
 
   let waitCount = 0;
   async function initHandDetection() {
-    // Esperar a que TensorFlow.js y handpose estén disponibles
-    if (typeof tf === 'undefined' || typeof handpose === 'undefined') {
+    // Esperar a que TensorFlow.js y hand-pose-detection estén disponibles
+    if (typeof tf === 'undefined' || typeof handPoseDetection === 'undefined') {
       waitCount++;
       if (waitCount % 4 === 0) { // Log cada 2 segundos
-        console.log('⏳ Esperando TensorFlow.js y handpose... (' + (waitCount / 2) + 's)');
+        console.log('⏳ Esperando TensorFlow.js y hand-pose-detection... (' + (waitCount / 2) + 's)');
       }
       setTimeout(initHandDetection, 500);
       return;
@@ -256,13 +264,20 @@ const HandPose = (() => {
     }
 
     try {
-      console.log('🚀 Cargando modelo handPose...');
+      console.log('🚀 Cargando modelo hand-pose-detection...');
       
-      // Cargar modelo de TensorFlow.js
-      const detector = await handpose.load();
+      // Cargar modelo de hand-pose-detection (soporta múltiples manos)
+      const detector = await handPoseDetection.createDetector(
+        handPoseDetection.SupportedModels.MediaPipeHands,
+        {
+          runtime: 'tfjs',
+          modelType: 'full',
+          maxHands: 2,
+        }
+      );
       onHandModelReady(detector);
     } catch (error) {
-      console.error('❌ Error al cargar modelo handPose:', error.message);
+      console.error('❌ Error al cargar modelo:', error.message);
       
       if (modelLoadRetries < MAX_MODEL_LOAD_RETRIES) {
         modelLoadRetries++;
@@ -288,7 +303,7 @@ const HandPose = (() => {
     state.detection.model = detector;
     state.detection.isModelReady = true;
 
-    console.log('✅ Modelo handPose cargado y listo');
+    console.log('✅ Modelo hand-pose-detection cargado y listo (máx 2 manos)');
 
     try {
       // Iniciar loop de detección
@@ -304,12 +319,12 @@ const HandPose = (() => {
     }
 
     try {
-      // TensorFlow.js handpose: estimateHands
+      // hand-pose-detection: estimateHands devuelve {hands: [...]}
       const videoSource = state.camera.video.elt || state.camera.video;
-      const predictions = await state.detection.model.estimateHands(videoSource, false);
+      const predictions = await state.detection.model.estimateHands(videoSource);
       onHandsEstimated(predictions);
     } catch (error) {
-      console.error('Error en detección:', error.message);
+      // Silenciar errores de detección transitorios
     }
 
     // Continuar en el siguiente frame
@@ -317,7 +332,7 @@ const HandPose = (() => {
   }
 
   function onHandsEstimated(predictions) {
-    // TensorFlow.js handpose devuelve array de predicciones
+    // hand-pose-detection devuelve array de manos directamente
     let handsList = Array.isArray(predictions) ? predictions : [];
 
     if (!handsList || handsList.length === 0) {
@@ -327,45 +342,27 @@ const HandPose = (() => {
       return;
     }
 
+    if (CONFIG.DEBUG && handsList.length > 1) {
+      console.log('🖐️ Predicciones de hand-pose-detection: ' + handsList.length + ' manos detectadas');
+    }
+
     // LÓGICA DE RASTREO: Mantener las primeras 2 manos detectadas
-    // Si aún no tenemos 2 manos siendo rastreadas, agregar nuevas
-    // Si ya tenemos 2, mantenerlas (ignorar manos adicionales)
+    // hand-pose-detection ya proporciona handedness ('Left', 'Right')
     
-    let detectedHands;
+    // Tomar las primeras 2 manos (máximo)
+    const detectedHands = handsList.slice(0, Math.min(handsList.length, state.detection.maxHands));
     
-    if (state.detection.trackedHandIds.length < state.detection.maxHands) {
-      // Aún podemos agregar más manos
-      detectedHands = handsList.slice(0, state.detection.maxHands);
-      
-      // Actualizar IDs rastreados basado en handedness
-      state.detection.trackedHandIds = detectedHands.map((hand, idx) => hand.handedness);
-    } else {
-      // Ya tenemos 2 manos, filtrar solo las que estamos rastreando
-      detectedHands = handsList.filter((hand) =>
-        state.detection.trackedHandIds.includes(hand.handedness)
-      );
-      
-      // Si una mano desaparece, permitir que entre otra
-      if (detectedHands.length < state.detection.trackedHandIds.length) {
-        // Agregar nuevas manos si alguna desapareció
-        const missingHands = handsList.filter(
-          (hand) => !state.detection.trackedHandIds.includes(hand.handedness)
-        );
-        
-        if (missingHands.length > 0) {
-          detectedHands.push(missingHands[0]);
-          state.detection.trackedHandIds = detectedHands.map((hand) => hand.handedness);
-        }
-      }
+    if (CONFIG.DEBUG && detectedHands.length > 1) {
+      console.log('✅ Manos a procesar: ' + detectedHands.length);
     }
 
     state.detection.lastHandCount = detectedHands.length;
 
     // Procesar cada mano detectada
     const processedHands = detectedHands.map((hand) => {
-      // TensorFlow.js handpose devuelve landmarks como array de arrays [x, y]
-      const landmarksPixels = (hand.landmarks || []).map((point) => {
-        return [point[0], point[1]];
+      // hand-pose-detection devuelve keypoints como array de objetos {x, y, z, name}
+      const landmarksPixels = (hand.keypoints || []).map((point) => {
+        return [point.x, point.y];
       });
 
       // Normalizar coordenadas a rango [0, 1]
@@ -381,14 +378,14 @@ const HandPose = (() => {
         palmLandmarks.reduce((sum, p) => sum + p[1], 0) / palmLandmarks.length,
       ];
 
-      // Determinar lado (handpose no lo proporciona, usar heurística)
-      const handedness = hand.handedness || (hand.landmarks[0][0] < state.camera.width / 2 ? 'Left' : 'Right');
+      // hand-pose-detection proporciona handedness ('Left' o 'Right')
+      const handedness = (hand.handedness || 'unknown').toLowerCase();
 
       return {
         side: handedness,
         landmarks: landmarksNormalized,
         palmCenter: palmCenter,
-        confidence: 0.9, // handpose no proporciona confianza
+        confidence: hand.score || 0.9,
       };
     });
 
@@ -411,6 +408,9 @@ const HandPose = (() => {
     // Guardar manos detectadas (ya suavizadas)
     state.detection.hands = smoothedHands;
     state.hands = smoothedHands;
+
+    // Actualizar eventos de UI
+    updateEventState();
 
     // Actualizar FPS de detección
     updateDetectionFps();
@@ -1280,10 +1280,233 @@ const HandPose = (() => {
       state.hold.gesture = null;
       state.hold.owner = null;
       
-      console.log('🎮 Modo: ' + (isGameMode ? 'JUEGO' : 'MENÚ'));
+      state.ui.mode = isGameMode ? 'juego' : 'menu';
+      
+      this.emitEvent('modo:cambiado', {
+        modo: state.ui.mode,
+        timestamp: Date.now(),
+      });
+      
+      console.log('🎮 Modo: ' + state.ui.mode);
+    },
+
+    // Obtener objeto de estado consultable para UI
+    estado: {
+      get manosDetectadas() {
+        return state.detection.hands.length > 0;
+      },
+      get cantidadManos() {
+        return state.detection.hands.length;
+      },
+      get modo() {
+        return state.ui.mode;
+      },
+      get gesto() {
+        return state.gestures.current;
+      },
+      get gesticuloSostenimiento() {
+        return state.hold.progress;
+      },
+      get ultimoGestoConfirmado() {
+        return state.ui.lastConfirmedGesture;
+      },
+      get cursor() {
+        return {
+          visible: state.ui.cursorVisible,
+          x: state.ui.cursorX,
+          y: state.ui.cursorY,
+        };
+      },
+      get manoDuenaActual() {
+        return state.gestures.owner;
+      },
+      get manoIgnorada() {
+        return state.gestures.ignored;
+      },
+      get caidaRapida() {
+        return state.ui.dosManosCaida;
+      },
+    },
+
+    // Emitir evento personalizado
+    emitEvent: function (eventName, detail) {
+      const event = new CustomEvent(eventName, {
+        detail: detail || {},
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(event);
     },
   };
 })();
+
+// =========================================================================
+// SECCIÓN: SALIDA DE EVENTOS
+// =========================================================================
+// Emite eventos personalizados para que la UI reaccione.
+//
+// EVENTOS DISPONIBLES (escuchar con document.addEventListener):
+// - "gesto:detectado"         { gesto, mano, timestamp }
+// - "gesto:progreso"          { progreso (0-1), gesto, mano, timestamp }
+// - "gesto:confirmado"        { gesto, manoDuena, timestamp }
+// - "gesto:perdido"           { gesto, timestamp }
+// - "gesto:ignorado"          { manoIgnorada, manoDuena, timestamp }
+// - "mano:detectada"          { cantidad, timestamp }
+// - "mano:perdida"            { timestamp }
+// - "cursor:mostrar"          { x, y, mano, timestamp }
+// - "cursor:ocultar"          { timestamp }
+// - "cursor:mover"            { x, y, timestamp }
+// - "cursor:click"            { x, y, mano, timestamp }
+// - "caida:inicio"            { timestamp }
+// - "caida:fin"               { timestamp }
+// - "modo:cambiado"           { modo (menu/juego), timestamp }
+//
+// EJEMPLO DE USO:
+// document.addEventListener('gesto:confirmado', (e) => {
+//   console.log('Gesto confirmado:', e.detail.gesto, 'Mano:', e.detail.manoDuena);
+// });
+//
+// document.addEventListener('cursor:mover', (e) => {
+//   console.log('Cursor en:', e.detail.x, e.detail.y);
+// });
+
+// Estado anterior para detectar cambios
+const eventState = {
+  lastGesture: null,
+  lastHandCount: 0,
+  lastCursorVisible: false,
+  lastDosManos: false,
+};
+
+function updateEventState() {
+  const now = Date.now();
+
+  // GESTO DETECTADO
+  if (state.gestures.current !== eventState.lastGesture) {
+    if (state.gestures.current) {
+      HandPose.emitEvent('gesto:detectado', {
+        gesto: state.gestures.current,
+        mano: state.gestures.owner,
+        timestamp: now,
+      });
+    } else if (eventState.lastGesture) {
+      HandPose.emitEvent('gesto:perdido', {
+        gesto: eventState.lastGesture,
+        timestamp: now,
+      });
+    }
+    eventState.lastGesture = state.gestures.current;
+  }
+
+  // GESTO PROGRESO
+  if (state.hold.active && state.hold.progress > 0) {
+    HandPose.emitEvent('gesto:progreso', {
+      progreso: state.hold.progress,
+      gesto: state.hold.gesture,
+      mano: state.hold.owner,
+      timestamp: now,
+    });
+  }
+
+  // GESTO CONFIRMADO
+  if (state.hold.confirmed && state.hold.gesture !== state.ui.lastConfirmedGesture) {
+    state.ui.lastConfirmedGesture = state.hold.gesture;
+    HandPose.emitEvent('gesto:confirmado', {
+      gesto: state.hold.gesture,
+      manoDuena: state.hold.owner,
+      timestamp: now,
+    });
+  }
+
+  // GESTO IGNORADO
+  if (state.gestures.ignored) {
+    HandPose.emitEvent('gesto:ignorado', {
+      manoIgnorada: state.gestures.ignored,
+      manoDuena: state.gestures.owner,
+      timestamp: now,
+    });
+  }
+
+  // MANO DETECTADA / PERDIDA
+  if (state.detection.hands.length !== eventState.lastHandCount) {
+    if (state.detection.hands.length > eventState.lastHandCount) {
+      HandPose.emitEvent('mano:detectada', {
+        cantidad: state.detection.hands.length,
+        timestamp: now,
+      });
+    } else if (state.detection.hands.length < eventState.lastHandCount) {
+      HandPose.emitEvent('mano:perdida', {
+        timestamp: now,
+      });
+    }
+    eventState.lastHandCount = state.detection.hands.length;
+  }
+
+  // CURSOR: MOSTRAR / OCULTAR
+  const cursorDebeSerVisible = state.gestures.current === 'ÍNDICE_LEVANTADO';
+  if (cursorDebeSerVisible && !eventState.lastCursorVisible) {
+    state.ui.cursorVisible = true;
+    HandPose.emitEvent('cursor:mostrar', {
+      x: state.ui.cursorX,
+      y: state.ui.cursorY,
+      mano: state.gestures.owner,
+      timestamp: now,
+    });
+    eventState.lastCursorVisible = true;
+  } else if (!cursorDebeSerVisible && eventState.lastCursorVisible) {
+    state.ui.cursorVisible = false;
+    HandPose.emitEvent('cursor:ocultar', {
+      timestamp: now,
+    });
+    eventState.lastCursorVisible = false;
+  }
+
+  // CURSOR: MOVER (si está visible)
+  if (state.ui.cursorVisible && state.detection.hands.length > 0) {
+    // Encontrar la mano dueña del cursor (índice levantado)
+    const cursorOwner = state.detection.hands.find(
+      (h) => h.side.toLowerCase() === state.gestures.owner
+    );
+    if (cursorOwner) {
+      state.ui.cursorX = cursorOwner.palmCenter[0];
+      state.ui.cursorY = cursorOwner.palmCenter[1];
+      HandPose.emitEvent('cursor:mover', {
+        x: state.ui.cursorX,
+        y: state.ui.cursorY,
+        timestamp: now,
+      });
+    }
+  }
+
+  // CURSOR: CLICK (índice toca palma)
+  if (state.gestures.current === 'ÍNDICE_CLICK' && state.ui.cursorVisible) {
+    HandPose.emitEvent('cursor:click', {
+      x: state.ui.cursorX,
+      y: state.ui.cursorY,
+      mano: state.gestures.owner,
+      timestamp: now,
+    });
+  }
+
+  // CAÍDA RÁPIDA: DOS MANOS (inicio / fin)
+  const dosManosCaida = state.detection.hands.length === 2;
+  if (dosManosCaida && !eventState.lastDosManos) {
+    state.ui.dosManosCaida = true;
+    HandPose.emitEvent('caida:inicio', {
+      timestamp: now,
+    });
+    eventState.lastDosManos = true;
+  } else if (!dosManosCaida && eventState.lastDosManos) {
+    state.ui.dosManosCaida = false;
+    HandPose.emitEvent('caida:fin', {
+      timestamp: now,
+    });
+    eventState.lastDosManos = false;
+  }
+}
+
+// Agregar método para actualizar eventos de UI
+HandPose._updateEventState = updateEventState;
 
 // Inicializar automáticamente cuando el DOM esté listo
 if (document.readyState === 'loading') {
