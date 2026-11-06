@@ -52,6 +52,8 @@ const HandPose = (() => {
       frameCount: 0,
       lastFpsTime: Date.now(),
       maxHands: 2,
+      trackedHandIds: [], // IDs de las manos siendo rastreadas
+      lastHandCount: 0, // Último conteo de manos
     },
     hands: [],
     gestures: {},
@@ -274,11 +276,43 @@ const HandPose = (() => {
     if (!handsList || handsList.length === 0) {
       state.detection.hands = [];
       state.hands = [];
+      state.detection.lastHandCount = 0;
       return;
     }
 
-    // Limitar a máximo 2 manos
-    const detectedHands = handsList.slice(0, state.detection.maxHands);
+    // LÓGICA DE RASTREO: Mantener las primeras 2 manos detectadas
+    // Si aún no tenemos 2 manos siendo rastreadas, agregar nuevas
+    // Si ya tenemos 2, mantenerlas (ignorar manos adicionales)
+    
+    let detectedHands;
+    
+    if (state.detection.trackedHandIds.length < state.detection.maxHands) {
+      // Aún podemos agregar más manos
+      detectedHands = handsList.slice(0, state.detection.maxHands);
+      
+      // Actualizar IDs rastreados basado en handedness
+      state.detection.trackedHandIds = detectedHands.map((hand, idx) => hand.handedness);
+    } else {
+      // Ya tenemos 2 manos, filtrar solo las que estamos rastreando
+      detectedHands = handsList.filter((hand) =>
+        state.detection.trackedHandIds.includes(hand.handedness)
+      );
+      
+      // Si una mano desaparece, permitir que entre otra
+      if (detectedHands.length < state.detection.trackedHandIds.length) {
+        // Agregar nuevas manos si alguna desapareció
+        const missingHands = handsList.filter(
+          (hand) => !state.detection.trackedHandIds.includes(hand.handedness)
+        );
+        
+        if (missingHands.length > 0) {
+          detectedHands.push(missingHands[0]);
+          state.detection.trackedHandIds = detectedHands.map((hand) => hand.handedness);
+        }
+      }
+    }
+
+    state.detection.lastHandCount = detectedHands.length;
 
     // Procesar cada mano detectada
     const processedHands = detectedHands.map((hand) => {
@@ -595,32 +629,30 @@ const HandPose = (() => {
     ];
 
     hands.forEach((hand) => {
-      // Convertir coordenadas normalizadas (0-1) a píxeles
-      const landmarksPixels = hand.landmarks.map((point) => [
+      // Usar puntos crudos para el esqueleto (si disponibles) o suavizados
+      const landmarksForSkeleton = (hand.landmarksRaw && CONFIG.SMOOTHING_ENABLED) 
+        ? hand.landmarksRaw 
+        : hand.landmarks;
+
+      // Convertir coordenadas normalizadas (0-1) a píxeles para esqueleto
+      const landmarksSkeletonPixels = landmarksForSkeleton.map((point) => [
         point[0] * state.camera.width,
         point[1] * state.camera.height,
       ]);
 
-      // Dibujar esqueleto suavizado (líneas verdes)
+      // Dibujar esqueleto (líneas verdes) usando puntos CRUDOS
       p.stroke(0, 255, 0);
       p.strokeWeight(2);
       connections.forEach((connection) => {
-        const start = landmarksPixels[connection[0]];
-        const end = landmarksPixels[connection[1]];
+        const start = landmarksSkeletonPixels[connection[0]];
+        const end = landmarksSkeletonPixels[connection[1]];
 
         if (start && end) {
           p.line(start[0], start[1], end[0], end[1]);
         }
       });
 
-      // Dibujar puntos suavizados (círculos verdes)
-      p.fill(0, 255, 0);
-      p.noStroke();
-      landmarksPixels.forEach((point) => {
-        p.ellipse(point[0], point[1], 6);
-      });
-
-      // Dibujar puntos crudos si disponibles (círculos rojos pequeños)
+      // Dibujar puntos crudos (círculos rojos)
       if (hand.landmarksRaw && CONFIG.SMOOTHING_ENABLED) {
         const landmarksRawPixels = hand.landmarksRaw.map((point) => [
           point[0] * state.camera.width,
@@ -630,7 +662,21 @@ const HandPose = (() => {
         p.fill(255, 0, 0);
         p.noStroke();
         landmarksRawPixels.forEach((point) => {
-          p.ellipse(point[0], point[1], 3);
+          p.ellipse(point[0], point[1], 5);
+        });
+      }
+
+      // Dibujar puntos suavizados (círculos verdes pequeños) para comparar
+      if (CONFIG.SMOOTHING_ENABLED) {
+        const landmarksPixels = hand.landmarks.map((point) => [
+          point[0] * state.camera.width,
+          point[1] * state.camera.height,
+        ]);
+
+        p.fill(0, 255, 0);
+        p.noStroke();
+        landmarksPixels.forEach((point) => {
+          p.ellipse(point[0], point[1], 2);
         });
       }
 
@@ -643,11 +689,11 @@ const HandPose = (() => {
       p.ellipse(palmCenterPixels[0], palmCenterPixels[1], 8);
 
       // Dibujar etiqueta de mano (izquierda/derecha en amarillo)
-      const firstPointPixels = landmarksPixels[0];
-      if (firstPointPixels) {
+      const firstPointSkeletonPixels = landmarksSkeletonPixels[0];
+      if (firstPointSkeletonPixels) {
         p.fill(255, 255, 0);
         p.textSize(12);
-        p.text(hand.side, firstPointPixels[0] + 10, firstPointPixels[1] - 10);
+        p.text(hand.side, firstPointSkeletonPixels[0] + 10, firstPointSkeletonPixels[1] - 10);
       }
     });
   }
