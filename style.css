@@ -1,8 +1,8 @@
 /* ============================================================================
- * TETRIS CON INTERACCIÓN — Estilos de la interfaz (Fase 2.2.1)
+ * TETRIS CON INTERACCIÃ“N â€” Estilos de la interfaz (Fase 2.2.1)
  * ----------------------------------------------------------------------------
- * Todo está prefijado con .tui- / --tui- y encapsulado bajo .tui-app para no
- * filtrar estilos hacia otros módulos. No se define nada sobre body, html ni
+ * Todo estÃ¡ prefijado con .tui- / --tui- y encapsulado bajo .tui-app para no
+ * filtrar estilos hacia otros mÃ³dulos. No se define nada sobre body, html ni
  * selectores globales.
  * ==========================================================================*/
 
@@ -52,16 +52,14 @@
     user-select: none;
 }
 
+/* El color de selecciÃ³n y de los controles es siempre el mismo (Electric
+   Blue). Del escenario solo cambia el fondo. */
 .tui-app[data-tui-scenario="teclado"] {
-    --tui-accent: var(--tui-blue);
     --tui-bg-scenario: #0B1033;
-    --tui-glow: 0 0 14px rgba(47, 85, 245, 0.55);
 }
 
 .tui-app[data-tui-scenario="edificio"] {
-    --tui-accent: var(--tui-tangerine);
     --tui-bg-scenario: #2A0C06;
-    --tui-glow: 0 0 14px rgba(255, 86, 34, 0.55);
 }
 
 /* Grilla de fondo, solo decorativa. */
@@ -79,7 +77,7 @@
     mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 78%);
 }
 
-/* Efecto CRT: líneas de barrido + viñeta. */
+/* Efecto CRT: lÃ­neas de barrido + viÃ±eta. */
 .tui-crt {
     position: absolute;
     inset: 0;
@@ -127,7 +125,7 @@
     display: grid;
 }
 
-/* ---------------------------------------------------------------- tipografía */
+/* ---------------------------------------------------------------- tipografÃ­a */
 
 .tui-kicker {
     margin: 0;
@@ -262,7 +260,7 @@
     font-size: 10px;
 }
 
-/* Colores de los botones de acción, al estilo consola. */
+/* Colores de los botones de acciÃ³n, al estilo consola. */
 .tui-btn[data-tui-control="a"] {
     color: var(--tui-lime);
     border-color: rgba(57, 227, 74, 0.6);
@@ -354,7 +352,7 @@
     color: var(--tui-ink-dim);
 }
 
-/* Decoración: celdas flotantes. */
+/* DecoraciÃ³n: celdas flotantes. */
 .tui-deco {
     position: absolute;
     inset: 0;
@@ -382,7 +380,7 @@
 .tui-deco__cell:nth-child(7) { left: 4%;  top: 46%; color: var(--tui-fuchsia);   animation-delay: -7.6s; }
 .tui-deco__cell:nth-child(8) { left: 96%; top: 40%; color: var(--tui-lime);      animation-delay: -0.6s; }
 
-/* --------------------------------------------------- selección de escenario */
+/* --------------------------------------------------- selecciÃ³n de escenario */
 
 .tui-screen--scenarios {
     align-items: center;
@@ -505,12 +503,11 @@
 /* Carcasa: ocupa toda la pantalla al iniciar la partida. */
 .tui-console {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(190px, 22vw, 250px);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-columns: clamp(160px, 17vw, 210px) minmax(0, 1fr) clamp(190px, 22vw, 250px);
+    grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
-        "bar    bar"
-        "screen panel"
-        "deck   panel";
+        "bar      bar    bar"
+        "controls screen panel";
     gap: clamp(8px, 1.1vw, 14px);
     width: 100%;
     height: 100%;
@@ -605,7 +602,7 @@
         inset 0 0 60px rgba(0, 0, 0, 0.9);
 }
 
-/* Preparado para recibir el canvas de p5 sin conocer su tamaño. */
+/* Preparado para recibir el canvas de p5 sin conocer su tamaÃ±o. */
 .tui-board > *,
 .tui-next > * {
     display: block;
@@ -674,7 +671,7 @@
     border: 2px dashed rgba(47, 85, 245, 0.35);
 }
 
-/* Espacio reservado para la cámara de handpose (inferior derecha). */
+/* Espacio reservado para la cÃ¡mara de handpose (inferior derecha). */
 .tui-camera {
     position: relative;
     margin-top: auto;
@@ -733,25 +730,159 @@
     color: var(--tui-ink-dim);
 }
 
-/* Deck de controles: solo bajo la pantalla, nunca bajo el panel derecho. */
-.tui-console__deck {
-    grid-area: deck;
+/* Panel de controles: columna izquierda, orden vertical PAUSA â†’ cruceta â†’ A/B. */
+.tui-console__controls {
+    grid-area: controls;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: clamp(12px, 2.2vw, 32px);
-    padding: clamp(10px, 1.6vh, 18px) clamp(14px, 2vw, 26px);
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.22));
+    min-height: 0;
+    padding: clamp(10px, 1.4vh, 18px) clamp(8px, 1vw, 14px);
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.2));
     border: 2px solid rgba(255, 255, 255, 0.05);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-/* Cruceta */
+/* Grupo de controles centrado verticalmente en la columna. */
+.tui-controls__stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(34px, 6vh, 64px);
+    width: 100%;
+    margin: auto 0;
+}
+
+/* Cruceta: una sola pieza con forma de cruz (clip-path).
+   Dos capas separadas a propÃ³sito:
+     .tui-pad-base  -> sombra proyectada. No se transforma, no gira.
+     .tui-pad-shell -> la pieza que bascula sobre su eje.
+   Si la sombra viviera en el elemento que rota, girarÃ­a junto con la cruceta
+   y el efecto se verÃ­a falso. */
+.tui-pad-base {
+    --tui-pad-cell: clamp(42px, 4.8vh, 54px);
+    --tui-cross: polygon(
+        33.34% 0, 66.66% 0,
+        66.66% 33.34%, 100% 33.34%,
+        100% 66.66%, 66.66% 66.66%,
+        66.66% 100%, 33.34% 100%,
+        33.34% 66.66%, 0 66.66%,
+        0 33.34%, 33.34% 33.34%
+    );
+    position: relative;
+    flex: 0 0 auto;
+    filter:
+        drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55))
+        drop-shadow(0 10px 16px rgba(0, 0, 0, 0.45));
+    transition: filter 0.12s ease;
+}
+
+/* Canto de la pieza: la "pared" que se ve cuando la cruceta se levanta.
+   Queda fija para que el volumen no gire con la inclinaciÃ³n. */
+.tui-pad-base::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, #0B0F1E 0%, #04060C 100%);
+    clip-path: var(--tui-cross);
+    transform: translateY(4px);
+}
+
+.tui-pad-shell {
+    position: relative;
+    padding: 4px;
+    background: linear-gradient(180deg, #303A5E 0%, #232A45 45%, #141A2E 100%);
+    clip-path: var(--tui-cross);
+    transform: perspective(900px) rotateX(0deg) rotateY(0deg);
+    transform-origin: 50% 50%;
+    transition: transform 0.1s cubic-bezier(0.2, 0.85, 0.3, 1);
+}
+
+/* Reflejo superior: la luz siempre viene de arriba. */
+.tui-pad-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 45%);
+}
+
+/* La pieza bascula sobre el centro: el lado presionado baja, el opuesto sube.
+   La sombra se acorta y se arrima porque la pieza entra en el panel. */
+.tui-pad-base[data-tui-tilt="up"] {
+    filter:
+        drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55))
+        drop-shadow(0 5px 9px rgba(0, 0, 0, 0.5));
+}
+
+.tui-pad-base[data-tui-tilt="up"] .tui-pad-shell {
+    transform: perspective(1000px) rotateX(16deg) translateY(2px);
+}
+
+.tui-pad-base[data-tui-tilt="down"] {
+    filter:
+        drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55))
+        drop-shadow(0 5px 9px rgba(0, 0, 0, 0.5));
+}
+
+.tui-pad-base[data-tui-tilt="down"] .tui-pad-shell {
+    transform: perspective(900px) rotateX(-11deg) translateY(1px);
+}
+
+.tui-pad-base[data-tui-tilt="left"] {
+    filter:
+        drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55))
+        drop-shadow(0 7px 12px rgba(0, 0, 0, 0.5));
+}
+
+.tui-pad-base[data-tui-tilt="left"] .tui-pad-shell {
+    transform: perspective(1000px) rotateY(-16deg) translateY(2px);
+}
+
+.tui-pad-base[data-tui-tilt="right"] {
+    filter:
+        drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55))
+        drop-shadow(0 7px 12px rgba(0, 0, 0, 0.5));
+}
+
+.tui-pad-base[data-tui-tilt="right"] .tui-pad-shell {
+    transform: perspective(1000px) rotateY(16deg) translateY(2px);
+}
+
+/* El lado que baja queda en sombra; el que sube recibe la luz. */
+.tui-pad-base[data-tui-tilt="up"] .tui-pad {
+    background-image:
+        linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
+        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
+}
+
+.tui-pad-base[data-tui-tilt="down"] .tui-pad {
+    background-image:
+        linear-gradient(0deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
+        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
+}
+
+.tui-pad-base[data-tui-tilt="left"] .tui-pad {
+    background-image:
+        linear-gradient(90deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
+        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
+}
+
+.tui-pad-base[data-tui-tilt="right"] .tui-pad {
+    background-image:
+        linear-gradient(270deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
+        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
+}
+
 .tui-pad {
     display: grid;
-    grid-template-columns: repeat(3, clamp(38px, 4.4vh, 50px));
-    grid-template-rows: repeat(3, clamp(38px, 4.4vh, 50px));
-    gap: 4px;
-    flex: 0 0 auto;
+    grid-template-columns: repeat(3, var(--tui-pad-cell));
+    grid-template-rows: repeat(3, var(--tui-pad-cell));
+    clip-path: var(--tui-cross);
+    background: linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
+    box-shadow:
+        inset 0 2px 0 rgba(255, 255, 255, 0.1),
+        inset 0 -3px 0 rgba(0, 0, 0, 0.55);
 }
 
 .tui-pad__btn {
@@ -759,8 +890,34 @@
     width: 100%;
     height: 100%;
     padding: 0;
-    font-size: 12px;
-    border-width: 2px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--tui-ink-dim);
+    font-size: 13px;
+    letter-spacing: 0;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85), 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.tui-pad__btn:hover {
+    border-color: transparent;
+    color: var(--tui-ink);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+    transform: none;
+}
+
+/* Mismo hundimiento que el resto de los botones, pero contenido en la pieza. */
+.tui-pad__btn:active,
+.tui-pad__btn[data-tui-pressed="true"] {
+    transform: none;
+    border-color: transparent;
+    color: #FFFFFF;
+    background: rgba(47, 85, 245, 0.3);
+    box-shadow:
+        inset 0 3px 10px rgba(0, 0, 0, 0.85),
+        inset 0 0 16px rgba(47, 85, 245, 0.75);
 }
 
 .tui-pad__btn--up { grid-column: 2; grid-row: 1; }
@@ -773,36 +930,35 @@
     grid-row: 2;
     align-self: center;
     justify-self: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 35%, #2A3150 0%, #10152A 70%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        0 1px 2px rgba(0, 0, 0, 0.6);
 }
-
-/* A / B */
-.tui-deck__actions {
+/* A / B debajo de la cruceta. */
+.tui-controls__actions {
     display: flex;
     align-items: center;
-    gap: clamp(10px, 1.6vw, 20px);
+    justify-content: center;
+    gap: clamp(14px, 1.8vw, 22px);
     flex: 0 0 auto;
 }
 
-.tui-deck__spacer {
-    flex: 1 1 auto;
-}
-
-/* Ventilación, LED y etiqueta del deck */
-.tui-deck__meta {
+/* VentilaciÃ³n, LED y etiqueta, al pie del panel. */
+.tui-controls__meta {
     display: flex;
+    flex-direction: column;
     align-items: center;
     gap: 10px;
-    flex: 0 0 auto;
-    min-width: 0;
+    width: 100%;
 }
 
 .tui-console__vent {
-    height: 16px;
+    width: 72%;
+    height: 14px;
     opacity: 0.45;
     background: repeating-linear-gradient(
         90deg,
@@ -811,12 +967,7 @@
     );
 }
 
-.tui-deck__meta .tui-console__vent {
-    width: clamp(50px, 9vw, 150px);
-}
-
 .tui-console__led {
-    flex: 0 0 auto;
     width: 8px;
     height: 8px;
     border-radius: 50%;
@@ -826,7 +977,6 @@
 }
 
 .tui-console__base-label {
-    flex: 0 0 auto;
     font-size: 9px;
     letter-spacing: 0.3em;
     color: var(--tui-ink-dim);
@@ -920,7 +1070,7 @@
         grid-template-areas:
             "bar"
             "screen"
-            "deck"
+            "controls"
             "panel";
         height: auto;
     }
@@ -929,14 +1079,31 @@
         height: min(46dvh, 420px);
     }
 
-    .tui-console__deck {
+    .tui-console__controls {
+        flex-direction: row;
         flex-wrap: wrap;
         justify-content: center;
-        gap: 12px;
+        gap: 14px;
     }
 
-    .tui-deck__spacer {
-        display: none;
+    .tui-controls__stack {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 14px;
+        width: auto;
+        margin: 0;
+    }
+
+    .tui-controls__meta {
+        flex-direction: row;
+        width: auto;
+        margin-top: 0;
+    }
+
+    .tui-console__vent {
+        width: 70px;
+        height: 12px;
     }
 
     .tui-console__panel {

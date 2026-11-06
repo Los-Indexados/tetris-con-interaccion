@@ -272,11 +272,17 @@
 
     consoleBox.appendChild(panel);
 
-    /* Deck de controles: cruceta + A/B + pausa, como una consola real.
-       No ejecuta lógica de juego: cada control emite tui:control:<id>. */
-    var deck = el('footer', 'tui-console__deck');
-    deck.setAttribute('data-tui-deck', '');
+    /* Panel de controles: columna izquierda, orden vertical
+       PAUSA → cruceta → A/B. No ejecuta lógica de juego: cada control emite
+       tui:control:<id>. */
+    var controls = el('aside', 'tui-console__controls');
+    controls.setAttribute('data-tui-controls', '');
+    controls.setAttribute('aria-label', 'Controles');
 
+    var stack = el('div', 'tui-controls__stack');
+    stack.appendChild(actionButton('Pausa', 'pause', 'start', 'pause'));
+
+    var padShell = el('div', 'tui-pad-shell');
     var pad = el('div', 'tui-pad');
     pad.setAttribute('role', 'group');
     pad.setAttribute('aria-label', 'Cruceta');
@@ -287,23 +293,26 @@
     pad.appendChild(hub);
     pad.appendChild(controlButton('right', '▶', 'tui-pad__btn tui-pad__btn--right', 'control-right', 'Derecha'));
     pad.appendChild(controlButton('down', '▼', 'tui-pad__btn tui-pad__btn--down', 'control-down', 'Abajo'));
-    deck.appendChild(pad);
+    padShell.appendChild(pad);
 
-    var actions = el('div', 'tui-deck__actions');
+    var padBase = el('div', 'tui-pad-base');
+    padBase.appendChild(padShell);
+    stack.appendChild(padBase);
+
+    var actions = el('div', 'tui-controls__actions');
     actions.appendChild(controlButton('b', 'B', 'tui-btn--round', 'control-b', 'Botón B'));
     actions.appendChild(controlButton('a', 'A', 'tui-btn--round', 'control-a', 'Botón A'));
-    deck.appendChild(actions);
+    stack.appendChild(actions);
 
-    deck.appendChild(el('span', 'tui-deck__spacer'));
-    deck.appendChild(actionButton('Pausa', 'pause', 'start', 'pause'));
+    controls.appendChild(stack);
 
-    var meta = el('div', 'tui-deck__meta');
+    var meta = el('div', 'tui-controls__meta');
     meta.appendChild(el('span', 'tui-console__vent'));
     meta.appendChild(el('span', 'tui-console__led'));
     meta.appendChild(el('span', 'tui-console__base-label', 'P1'));
-    deck.appendChild(meta);
+    controls.appendChild(meta);
 
-    consoleBox.appendChild(deck);
+    consoleBox.appendChild(controls);
 
     section.appendChild(consoleBox);
     return section;
@@ -470,6 +479,27 @@
     var list = root.querySelectorAll('[data-tui-pressed="true"]');
     for (var i = 0; i < list.length; i++) list[i].removeAttribute('data-tui-pressed');
     pressed = Object.create(null);
+    syncPadTilt();
+  }
+
+  /* Inclina la cruceta como una pieza única hacia la dirección presionada.
+     El atributo va en .tui-pad-base: ahí vive la sombra, para que no gire. */
+  function syncPadTilt() {
+    if (!root) return;
+    var base = root.querySelector('.tui-pad-base');
+    if (!base) return;
+
+    var tilt = '';
+    var arrows = root.querySelectorAll('.tui-pad__btn');
+    for (var i = 0; i < arrows.length; i++) {
+      if (pressed[arrows[i].getAttribute('data-tui-button')]) {
+        tilt = arrows[i].getAttribute('data-tui-control');
+        break;
+      }
+    }
+
+    if (tilt) base.setAttribute('data-tui-tilt', tilt);
+    else base.removeAttribute('data-tui-tilt');
   }
 
   /* Señal externa sin acción lógica: solo el estado visual. */
@@ -478,6 +508,7 @@
     if (!button || button.disabled || pressed[id]) return false;
     button.setAttribute('data-tui-pressed', 'true');
     pressed[id] = { source: source || 'external', fired: false };
+    syncPadTilt();
     return true;
   }
 
@@ -487,6 +518,7 @@
     if (!button || !pressed[id]) return false;
     button.removeAttribute('data-tui-pressed');
     delete pressed[id];
+    syncPadTilt();
     return true;
   }
 
@@ -673,6 +705,61 @@
       return ensure() ? root.querySelector('[data-tui-next]') : null;
     }
   };
+
+  /* ==========================================================================
+   * INTEGRACIÓN CON HANDPOSE.JS
+   * --------------------------------------------------------------------------
+   * Este módulo NO reconoce gestos ni manos. Solo expone una entrada para que
+   * el futuro handpose.js indique "este botón está presionado" o "activá este
+   * botón", sin tocar el DOM ni conocer clases CSS.
+   *
+   * Descubrimiento de ids (no hardcodear):
+   *   window.TetrisUI.getButtons()
+   *   -> [{ id, control, action, disabled }, ...]
+   *
+   * Ejemplo de consumo desde handpose.js:
+   *
+   *   var ui = window.TetrisUI;
+   *
+   *   // 1) Mano detectada sobre el botón: solo se ilumina.
+   *   ui.press('control-a');
+   *
+   *   // 2) Mano retirada sin confirmar: vuelve a la normalidad.
+   *   ui.release('control-a');
+   *
+   *   // 3) Gesto confirmado: ilumina y ejecuta la acción una sola vez.
+   *   ui.activate('pause');
+   *
+   *   // 4) Gesto puntual: pulsación completa y breve (se libera sola).
+   *   ui.pulse('control-b');
+   *
+   *   // 5) Enterarse de lo que hizo un control de juego.
+   *   ui.on('control:up', function () {
+   *     // El controlador decide qué hacer; la interfaz no mueve piezas.
+   *   });
+   *
+   * Contrato de cada función:
+   *   press(id)     true si iluminó. false si ya estaba presionado, si no
+   *                 existe o si está deshabilitado.
+   *   release(id)   true si volvió a normal. false si no había nada.
+   *   activate(id)  true si ejecutó la acción. false si fue bloqueado por
+   *                 deduplicación o por estar deshabilitado.
+   *   pulse(id)     igual que activate, y libera a los 180 ms.
+   *
+   * Garantías anti-duplicado:
+   *   - activate repetido sin release no vuelve a ejecutar la acción.
+   *   - activate se ignora si el botón está presionado por el puntero: en ese
+   *     caso la acción la ejecuta el clic, una sola vez.
+   *   - Un gesto de puntero ejecuta exactamente una acción.
+   *   - Al cambiar de pantalla se liberan todas las presiones pendientes.
+   *
+   * Importante: press() sin release() deja el botón iluminado. Para gestos
+   * puntuales usar pulse().
+   *
+   * handpose.js no debe llamar a click(), ni leer data-tui-pressed, ni
+   * modificar clases: toda la comunicación pasa por estas cuatro funciones y
+   * por los eventos tui:*.
+   * ==========================================================================*/
 
   window.TetrisUI = api;
 
