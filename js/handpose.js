@@ -24,6 +24,23 @@ const CONFIG = {
   
   // Tolerancia de desaparición de mano
   HAND_DISAPPEARANCE_TOLERANCE_MS: 200, // Milisegundos para tolerancia
+  
+  // Configuración de gestos
+  GESTURE_CONFIDENCE_MIN: 0.7, // Confianza mínima para detectar gesto
+  GESTURE_ENABLED: true, // Activar/desactivar detección de gestos
+  
+  // Prioridad entre manos
+  HAND_OWNERSHIP_ENABLED: true, // Activar regla de prioridad
+  HAND_OWNERSHIP_TIMEOUT_MS: 200, // Retardo para traspaso de dueña
+  
+  // Umbrales para detección de dedos extendidos
+  FINGER_EXTENDED_THRESHOLD: 0.05, // Distancia mínima entre punta y articulación media
+  
+  // Umbrales de movimiento
+  HAND_MOVEMENT_THRESHOLD: 0.05, // Cambio mínimo en posición X para detectar movimiento
+  
+  // Umbrales para contacto dedo-palma (click)
+  FINGER_PALM_CONTACT_THRESHOLD: 0.08, // Distancia máxima entre punta y palma
 };
 
 // ============================================================================
@@ -56,7 +73,12 @@ const HandPose = (() => {
       lastHandCount: 0, // Último conteo de manos
     },
     hands: [],
-    gestures: {},
+    gestures: {
+      current: null, // Gesto actual detectado
+      owner: null, // Mano dueña del gesto ("left" o "right")
+      ignored: null, // Mano ignorada por conflicto
+      lastUpdate: 0, // Timestamp del último gesto
+    },
   };
 
   // Callbacks para comunicación con el resto del equipo
@@ -351,6 +373,9 @@ const HandPose = (() => {
     // Manejar desaparición de manos
     handleHandDisappearance(currentTime);
 
+    // Detectar gestos
+    detectAllGestures(smoothedHands, currentTime);
+
     // Guardar manos detectadas (ya suavizadas)
     state.detection.hands = smoothedHands;
     state.hands = smoothedHands;
@@ -595,6 +620,241 @@ const HandPose = (() => {
   }
 
   // =========================================================================
+  // SECCIÓN: GESTOS
+  // =========================================================================
+  // Detecta gestos a partir de puntos suavizados de las manos.
+  // Implementa regla de prioridad: primera mano que aparece es dueña.
+
+  // Estado de propiedad de gestos por mano
+  const gestureOwnership = {
+    left: {
+      owner: null, // null, 'left', o 'right'
+      startTime: 0,
+      lastGesture: null,
+    },
+    right: {
+      owner: null,
+      startTime: 0,
+      lastGesture: null,
+    },
+  };
+
+  // Historial de posiciones de manos para detectar movimiento
+  const handPositionHistory = {
+    left: { lastPalmX: null, moving: false, direction: null },
+    right: { lastPalmX: null, moving: false, direction: null },
+  };
+
+  // Detectar si un dedo está extendido comparando punta con articulación media
+  function isFingerExtended(hand, fingerIndices) {
+    // fingerIndices: [punta, articulación media]
+    const tipPoint = hand.landmarks[fingerIndices[0]];
+    const midPoint = hand.landmarks[fingerIndices[1]];
+
+    if (!tipPoint || !midPoint) return false;
+
+    const distance = Math.sqrt(
+      (tipPoint[0] - midPoint[0]) ** 2 + (tipPoint[1] - midPoint[1]) ** 2
+    );
+
+    return distance > CONFIG.FINGER_EXTENDED_THRESHOLD;
+  }
+
+  // Detectar si pulgar está extendido (diferente a otros dedos)
+  function isThumbExtended(hand) {
+    // Pulgar: punta (4) vs articulación media (2)
+    return isFingerExtended(hand, [4, 2]);
+  }
+
+  // Detectar si índice está extendido
+  function isIndexExtended(hand) {
+    // Índice: punta (8) vs articulación media (6)
+    return isFingerExtended(hand, [8, 6]);
+  }
+
+  // Detectar si dedo toca palma (click)
+  function isIndexTouchingPalm(hand) {
+    const indexTip = hand.landmarks[8]; // Punta del índice
+    const palmCenter = hand.palmCenter;
+
+    if (!indexTip || !palmCenter) return false;
+
+    const distance = Math.sqrt(
+      (indexTip[0] - palmCenter[0]) ** 2 + (indexTip[1] - palmCenter[1]) ** 2
+    );
+
+    return distance < CONFIG.FINGER_PALM_CONTACT_THRESHOLD;
+  }
+
+  // Contar dedos extendidos (0-5)
+  function countExtendedFingers(hand) {
+    let count = 0;
+
+    // Pulgar (índices 2-4)
+    if (isThumbExtended(hand)) count++;
+
+    // Índice (índices 6-8)
+    if (isIndexExtended(hand)) count++;
+
+    // Medio (índices 10-12)
+    if (isFingerExtended(hand, [12, 10])) count++;
+
+    // Anular (índices 14-16)
+    if (isFingerExtended(hand, [16, 14])) count++;
+
+    // Meñique (índices 18-20)
+    if (isFingerExtended(hand, [20, 18])) count++;
+
+    return count;
+  }
+
+  // Detectar gesto de una mano
+  function detectGesture(hand, side) {
+    const extendedCount = countExtendedFingers(hand);
+
+    // MANO_ABIERTA (5 dedos)
+    if (extendedCount === 5) {
+      return 'MANO_ABIERTA';
+    }
+
+    // PUÑO (0 dedos)
+    if (extendedCount === 0) {
+      return 'PUÑO';
+    }
+
+    // PULGAR_ARRIBA (solo pulgar)
+    if (isThumbExtended(hand) && extendedCount === 1) {
+      return 'PULGAR_ARRIBA';
+    }
+
+    // ÍNDICE_LEVANTADO (solo índice)
+    if (isIndexExtended(hand) && extendedCount === 1) {
+      return 'ÍNDICE_LEVANTADO';
+    }
+
+    // ÍNDICE_CLICK (índice toca palma)
+    if (isIndexTouchingPalm(hand)) {
+      return 'ÍNDICE_CLICK';
+    }
+
+    return null; // Gesto no reconocido
+  }
+
+  // Detectar movimiento de mano abierta
+  function detectHandMovement(hand, side) {
+    const palmX = hand.palmCenter[0];
+    const history = handPositionHistory[side];
+
+    if (history.lastPalmX === null) {
+      history.lastPalmX = palmX;
+      return null;
+    }
+
+    const diff = palmX - history.lastPalmX;
+
+    // Si cambio es pequeño, no hay movimiento
+    if (Math.abs(diff) < CONFIG.HAND_MOVEMENT_THRESHOLD) {
+      history.moving = false;
+      return null;
+    }
+
+    // Detectar dirección
+    history.direction = diff > 0 ? 'DERECHA' : 'IZQUIERDA';
+    history.moving = true;
+    history.lastPalmX = palmX;
+
+    return history.direction;
+  }
+
+  // Aplicar regla de prioridad: primera mano que aparece es dueña
+  function applyHandOwnershipRule(hands, currentTime) {
+    if (!CONFIG.HAND_OWNERSHIP_ENABLED) {
+      return hands; // Sin regla de prioridad
+    }
+
+    // Identificar qué manos están presentes
+    const presentSides = hands.map((h) => h.side.toLowerCase());
+
+    // Si es la primera vez que vemos estas manos, marcar aparición
+    presentSides.forEach((side) => {
+      if (!gestureOwnership[side].owner) {
+        gestureOwnership[side].owner = side; // La mano es dueña de sí misma al aparecer
+        gestureOwnership[side].startTime = currentTime;
+      }
+    });
+
+    // Manos que desaparecieron: limpiar ownership
+    Object.keys(gestureOwnership).forEach((side) => {
+      if (!presentSides.includes(side)) {
+        gestureOwnership[side].owner = null;
+        gestureOwnership[side].startTime = 0;
+      }
+    });
+
+    return hands;
+  }
+
+  // Detectar gestos en todas las manos
+  function detectAllGestures(hands, currentTime) {
+    if (!CONFIG.GESTURE_ENABLED || !hands || hands.length === 0) {
+      state.gestures.current = null;
+      return;
+    }
+
+    // Aplicar regla de prioridad
+    applyHandOwnershipRule(hands, currentTime);
+
+    let detectedGesture = null;
+    let gestureOwner = null;
+    let ignoredHand = null;
+
+    hands.forEach((hand) => {
+      const side = hand.side.toLowerCase();
+      const gesture = detectGesture(hand, side);
+      const movement = detectHandMovement(hand, side);
+
+      // Gesto detectado
+      if (gesture) {
+        // Verificar regla de prioridad
+        if (gestureOwnership[side].owner !== side) {
+          // Esta mano no es dueña, ignorar
+          ignoredHand = side;
+          return;
+        }
+
+        detectedGesture = gesture;
+        gestureOwner = side;
+
+        // Si hay movimiento con mano abierta, agregar dirección
+        if (gesture === 'MANO_ABIERTA' && movement) {
+          detectedGesture = 'MANO_ABIERTA_' + movement;
+        }
+      }
+
+      // Movimiento sin gesto específico
+      if (movement && gesture === 'MANO_ABIERTA') {
+        if (!detectedGesture) {
+          detectedGesture = 'MANO_ABIERTA_' + movement;
+          gestureOwner = side;
+        }
+      }
+    });
+
+    // Actualizar estado de gestos
+    state.gestures.current = detectedGesture;
+    state.gestures.owner = gestureOwner;
+    state.gestures.ignored = ignoredHand;
+    state.gestures.lastUpdate = currentTime;
+
+    // Log en DEBUG
+    if (CONFIG.DEBUG && detectedGesture) {
+      console.log(
+        '🎯 Gesto: ' + detectedGesture + ' (Dueña: ' + gestureOwner + ')'
+      );
+    }
+  }
+
+  // =========================================================================
   // SECCIÓN: DEBUG VISUAL
   // =========================================================================
   // Dibuja los 21 puntos clave y el esqueleto de las manos en el canvas.
@@ -723,7 +983,12 @@ const HandPose = (() => {
           detectionFps: state.detection.detectionFps,
         },
         hands: state.hands,
-        gestures: state.gestures,
+        gestures: {
+          current: state.gestures.current,
+          owner: state.gestures.owner,
+          ignored: state.gestures.ignored,
+          lastUpdate: state.gestures.lastUpdate,
+        },
       };
     },
 
