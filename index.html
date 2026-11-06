@@ -10,6 +10,13 @@
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
     <!-- p5.sound: loadSound(), loop(), play() y efectos -->
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/addons/p5.sound.min.js"></script>
+
+    <!-- TensorFlow.js (backend de detección de manos) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+    <!-- WebGL backend para TensorFlow.js (aceleración GPU) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.11.0"></script>
+    <!-- Modelo de detección de manos (Google MediaPipe) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@2.0.0"></script>
 </head>
 
 <body>
@@ -17,9 +24,13 @@
          del panel de la consola, no acá. -->
     <main id="tetris-app"></main>
 
-    <!-- Orden obligatorio: motor -> interfaz -> integración p5 -->
+    <!-- Contenedor para video de cámara (detección de manos) -->
+    <div id="camera-container"></div>
+
+    <!-- Orden obligatorio: motor -> interfaz -> detección de manos -> integración p5 -->
     <script src="js/gamelogic.js"></script>
     <script src="js/interface.js"></script>
+    <script src="js/handpose.js"></script>
     <script src="sketch.js"></script>
 </body>
 </html>
