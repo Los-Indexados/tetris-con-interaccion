@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /* ============================================================================
  * TETRIS CON INTERACCIÃ“N â€” Estilos de la interfaz (Fase 2.2.1)
  * ----------------------------------------------------------------------------
@@ -1133,4 +1134,21 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
     }
+=======
+/* Canvas a pantalla completa: sin márgenes del navegador ni scrollbars. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #0b0f17;
+}
+
+#juego {
+  display: block;
+}
+
+canvas {
+  display: block;
+>>>>>>> 78f4acffb8628ff943c87fc6e5f3b1e0f0d1edca
 }
