@@ -747,6 +747,43 @@
 .tui-next__cell--S { background: #3DDC84; }
 .tui-next__cell--T { background: #B45CFF; }
 .tui-next__cell--Z { background: #FF4D6D; }
+/* Visor de cámara: el canvas que crea handpose llena el recuadro. */
+.tui-camera__slot > canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Cursor de mano (coordenadas normalizadas que llegan por moveCursor). */
+.tui-cursor {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
+    border: 2px solid var(--tui-lime);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--tui-lime), inset 0 0 8px rgba(57, 227, 74, 0.45);
+    pointer-events: none;
+    z-index: 60;
+    display: none;
+    transition: left 0.06s linear, top 0.06s linear;
+}
+
+.tui-cursor[data-tui-visible="true"] {
+    display: block;
+}
+
+.tui-cursor::after {
+    content: "";
+    position: absolute;
+    inset: 9px;
+    border-radius: 50%;
+    background: var(--tui-lime);
+    box-shadow: 0 0 8px var(--tui-lime);
+}
+
 /* Espacio reservado para la cámara de handpose (inferior derecha). */
 .tui-camera {
     position: relative;

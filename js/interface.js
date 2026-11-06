@@ -26,6 +26,9 @@
  *   TetrisUI.release(id)     Vuelve al estado normal y permite reactivar
  *   TetrisUI.activate(id)    Presión visual + acción lógica, una sola vez
  *   TetrisUI.pulse(id)       activate + release automático a los 180 ms
+ *   TetrisUI.moveCursor(x,y) Mueve el cursor de mano (coordenadas 0..1)
+ *   TetrisUI.hideCursor()    Oculta el cursor de mano
+ *   TetrisUI.clickAt(x,y)    Activa el botón que esté bajo ese punto
  *
  * Los ids son estables y únicos (ver getButtons()): 'start-game',
  * 'open-scenarios', 'select-teclado', 'select-edificio', 'confirm-scenario',
@@ -263,6 +266,7 @@
 
     var camera = el('div', 'tui-camera');
     var cameraSlot = el('div', 'tui-camera__slot');
+    cameraSlot.id = 'camera-container';
     cameraSlot.setAttribute('data-tui-camera', '');
     var cameraPlaceholder = el('div', 'tui-camera__placeholder');
     cameraPlaceholder.setAttribute('aria-hidden', 'true');
@@ -439,6 +443,66 @@
     for (var i = 0; i < nodes.length; i++) {
       nodes[i].textContent = texto;
     }
+  }
+
+  /* ---------------------------------------------------------------- cursor -- */
+
+  /* Cursor de mano: lo mueve el sistema de poses con coordenadas normalizadas
+     (0..1) y la interfaz solo lo dibuja y resuelve el clic sobre un botón. */
+
+  function cursorNode() {
+    var node = root.querySelector('.tui-cursor');
+    if (!node) {
+      node = el('div', 'tui-cursor');
+      node.setAttribute('aria-hidden', 'true');
+      root.appendChild(node);
+    }
+    return node;
+  }
+
+  function normalizar(valor) {
+    var n = Number(valor);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(1, Math.max(0, n));
+  }
+
+  function moveCursor(x, y) {
+    if (!ensure()) return false;
+    var nx = normalizar(x);
+    var ny = normalizar(y);
+    if (nx === null || ny === null) return false;
+
+    var node = cursorNode();
+    node.setAttribute('data-tui-visible', 'true');
+    node.style.left = (nx * 100).toFixed(3) + '%';
+    node.style.top = (ny * 100).toFixed(3) + '%';
+    return true;
+  }
+
+  function hideCursor() {
+    if (!root) return false;
+    var node = root.querySelector('.tui-cursor');
+    if (!node) return false;
+    node.removeAttribute('data-tui-visible');
+    return true;
+  }
+
+  /* Resuelve el clic del cursor sobre el botón que esté debajo. */
+  function clickAt(x, y) {
+    if (!ensure()) return false;
+    var nx = normalizar(x);
+    var ny = normalizar(y);
+    if (nx === null || ny === null) return false;
+
+    var px = Math.round(nx * window.innerWidth);
+    var py = Math.round(ny * window.innerHeight);
+    var target = document.elementFromPoint(px, py);
+    if (!target || typeof target.closest !== 'function') return false;
+
+    var button = target.closest('[data-tui-button]');
+    if (!button || !root.contains(button) || button.disabled) return false;
+
+    return activate(button.getAttribute('data-tui-button'));
   }
 
   /* --------------------------------------------------------------- behavior */
@@ -717,6 +781,9 @@
     release: release,
     activate: activate,
     pulse: pulse,
+    moveCursor: moveCursor,
+    hideCursor: hideCursor,
+    clickAt: clickAt,
     getButtons: function () {
       if (!ensure()) return [];
       var out = [];

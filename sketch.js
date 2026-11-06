@@ -15,6 +15,13 @@
  *   control-up    -> sin función por ahora (la interfaz igual emite el evento)
  *   control-a     -> rotar (derecha)      control-b     -> rotarIzquierda
  *
+ * handpose.js (módulo externo, no se modifica) se consume así:
+ *   mover:columna (delta) -> una celda por columna que cruza la mano
+ *   rotarHorario/Antihorario -> motor; pausar (puño) -> menú de pausa
+ *   caidaRapidaInicio/Fin (dos manos) -> caída rápida sostenida
+ *   cursorMover/Click    -> TetrisUI.moveCursor / clickAt
+ *   El modo menu/juego se cambia solo al navegar; debug con ?debug en la URL.
+ *
  * Los bloques se dibujan en el canvas que vive dentro de [data-tui-board].
  * La grilla del tablero es 16 x 16 y el contenedor es cuadrado (CSS).
  * ==========================================================================*/
@@ -244,6 +251,123 @@
     cargarAudios();
   }
 
+  /* ------------------------------------------------- handpose (otro módulo) -- */
+
+  var caidaRapidaTimer = null;
+  var ultimaColumnaMano = null;
+
+  function iniciarCaidaRapida() {
+    if (caidaRapidaTimer) return;
+    caidaRapidaTimer = window.setInterval(function () {
+      if (!motor || !motor.estaActivo()) {
+        detenerCaidaRapida();
+        return;
+      }
+      motor.bajarRapido();
+    }, 70);
+  }
+
+  function detenerCaidaRapida() {
+    if (!caidaRapidaTimer) return;
+    window.clearInterval(caidaRapidaTimer);
+    caidaRapidaTimer = null;
+  }
+
+  /* Traduce la API de js/handpose.js a las acciones del juego y de la interfaz.
+     No se modifica el módulo: solo se consumen sus callbacks y eventos. */
+  var handPoseConectado = false;
+
+  function conectarHandPose() {
+    if (handPoseConectado) return;
+    var hp = window.HandPose;
+    if (!hp || typeof hp.on !== 'function') return;
+    handPoseConectado = true;
+
+    /* Movimiento: se escucha el evento crudo de columna y se mueve una celda
+       por cada columna que cruza la mano. El callback de la integración mapea
+       la posición absoluta (izquierda/derecha del centro), lo que empujaría la
+       pieza sin parar hacia un lado mientras la mano siga en esa mitad. */
+    document.addEventListener('mover:columna', function (evento) {
+      if (!motor || ui.getScreen() !== 'game' || !motor.estaActivo()) return;
+
+      var columna = evento.detail ? evento.detail.columna : null;
+      if (typeof columna !== 'number') return;
+
+      if (ultimaColumnaMano === null) {
+        ultimaColumnaMano = columna;
+        return;
+      }
+
+      var delta = columna - ultimaColumnaMano;
+      ultimaColumnaMano = columna;
+      if (delta === 0) return;
+
+      var pasos = Math.min(4, Math.abs(delta));
+      for (var i = 0; i < pasos; i++) {
+        if (delta < 0) motor.moverIzquierda();
+        else motor.moverDerecha();
+      }
+    });
+
+    hp.on('rotarHorario', function () {
+      accion(function () { motor.rotar(); });
+    });
+    hp.on('rotarAntihorario', function () {
+      accion(function () { motor.rotarIzquierda(); });
+    });
+
+    /* Puño: abre el menú de pausa (el motor se pausa con el evento de la UI). */
+    hp.on('pausar', function () {
+      if (ui.getScreen() === 'game') ui.show('paused');
+    });
+
+    /* Dos manos: caída rápida mientras se sostiene. */
+    hp.on('caidaRapidaInicio', iniciarCaidaRapida);
+    hp.on('caidaRapidaFin', detenerCaidaRapida);
+
+    /* Cursor: mueve el puntero y activa el botón que quede debajo. */
+    hp.on('cursorMover', function (datos) {
+      ui.moveCursor(datos.x, datos.y);
+    });
+    hp.on('cursorClick', function (datos) {
+      ui.clickAt(datos.x, datos.y);
+    });
+
+    document.addEventListener('cursor:mostrar', function (evento) {
+      if (evento.detail) ui.moveCursor(evento.detail.x, evento.detail.y);
+    });
+    document.addEventListener('cursor:ocultar', function () {
+      ui.hideCursor();
+    });
+
+    /* El módulo distingue navegación de menú y de juego. */
+    ui.on('screen:change', function (evento) {
+      var destino = evento && evento.detail ? evento.detail.screen : null;
+      if (destino !== 'game') detenerCaidaRapida();
+      ultimaColumnaMano = null;
+      try {
+        hp.setModo(destino === 'game' ? 'juego' : 'menu');
+      } catch (error) {
+        /* módulo opcional: si no expone setModo, se ignora */
+      }
+    });
+
+    try {
+      hp.setModo(ui.getScreen() === 'game' ? 'juego' : 'menu');
+    } catch (error) {
+      /* idem */
+    }
+
+    /* Debug del módulo sin tener que tocar código: abrir la página con ?debug */
+    if (typeof hp.setDebug === 'function' && /[?&]debug\b/.test(window.location.search)) {
+      try {
+        hp.setDebug(true);
+      } catch (error) {
+        /* opcional */
+      }
+    }
+  }
+
   /* ------------------------------------------------------------------- p5 */
 
   window.setup = function () {
@@ -267,6 +391,10 @@
     conectarControles();
     conectarJuego();
     conectarAudio();
+    conectarHandPose();
+
+    /* handpose.js puede terminar de cargar después de este setup. */
+    document.addEventListener('handpose:listo', conectarHandPose);
 
     ajustarLienzo();
     sincronizarPuntaje();

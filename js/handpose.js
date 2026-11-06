@@ -1965,13 +1965,17 @@ const HandPoseIntegration = (() => {
 // Inicializar integración
 HandPoseIntegration.init();
 
+// El init real del módulo (arranca p5 y la cámara). Se guarda porque más abajo
+// Object.assign copia la API de integración sobre HandPose y pisaría este método.
+const iniciarHandPose = HandPose.init;
+
 // Inicializar automáticamente cuando el DOM esté listo
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    HandPose.init();
+    iniciarHandPose();
   });
 } else {
-  HandPose.init();
+  iniciarHandPose();
 }
 
 // Exponer en ventana global
@@ -1981,3 +1985,7 @@ window.HandPoseIntegration = HandPoseIntegration;
 // Para compatibilidad y acceso más simple desde el equipo de Tetris:
 // Pueden usar window.HandPose.on() directamente si lo prefieren
 Object.assign(HandPose, HandPoseIntegration);
+
+// Restaurar el init del módulo: sin esto, HandPose.init() solo registraba
+// listeners y la cámara nunca arrancaba. La integración ya se inicializó arriba.
+HandPose.init = iniciarHandPose;

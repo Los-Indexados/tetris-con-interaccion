@@ -21,11 +21,8 @@
 
 <body>
     <!-- Contenedor raíz de la interfaz. El canvas del tablero se monta dentro
-         del panel de la consola, no acá. -->
+         del panel de la consola, y el de la cámara en el visor del panel. -->
     <main id="tetris-app"></main>
-
-    <!-- Contenedor para video de cámara (detección de manos) -->
-    <div id="camera-container"></div>
 
     <!-- Orden obligatorio: motor -> interfaz -> detección de manos -> integración p5 -->
     <script src="js/gamelogic.js"></script>
