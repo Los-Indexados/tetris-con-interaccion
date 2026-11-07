@@ -493,7 +493,7 @@ function cargarAudios() {
 
   sonidoMusica = loadSound(
     ARCHIVOS_AUDIO.musica,
-    () => { if (audioIniciado && (!window.juego || !window.juego.gameOver)) intentarMusica(); },
+    () => { if (audioIniciado) intentarMusica(); },
     () => { sonidoMusica = null; }
   );
 
@@ -512,10 +512,14 @@ function cargarAudios() {
 
 /** Desbloquea el AudioContext con el gesto del usuario. */
 function desbloquearAudio() {
-  if (typeof userStartAudio !== 'function') return;
+  if (typeof userStartAudio !== 'function') return null;
 
   const resultado = userStartAudio();
-  if (resultado && typeof resultado.catch === 'function') resultado.catch(() => {});
+  if (resultado && typeof resultado.catch === 'function') {
+    resultado.catch(() => {});
+    return resultado;
+  }
+  return null;
 }
 
 /**
@@ -525,7 +529,12 @@ function desbloquearAudio() {
 function iniciarAudio() {
   if (!audioIniciado) {
     audioIniciado = true;
-    desbloquearAudio();
+    const desbloqueo = desbloquearAudio();
+    if (desbloqueo && typeof desbloqueo.then === 'function') {
+      // El contexto se reanuda de forma asíncrona: recién ahí se puede sonar.
+      desbloqueo.then(() => intentarMusica()).catch(() => {});
+      return;
+    }
   } else if (typeof getAudioContext === 'function') {
     const contexto = getAudioContext();
     if (contexto && contexto.state === 'suspended') desbloquearAudio();
@@ -534,9 +543,18 @@ function iniciarAudio() {
   intentarMusica();
 }
 
+/** La música suena solo en partida: ni en menús, ni en pausa, ni en game over. */
+function musicaPermitida() {
+  if (window.juego && window.juego.gameOver) return false;
+  if (window.TetrisUI && typeof window.TetrisUI.getScreen === 'function') {
+    return window.TetrisUI.getScreen() === 'game';
+  }
+  return true;
+}
+
 /** Arranca el loop de la música si el archivo está listo. */
 function intentarMusica() {
-  if (window.juego && window.juego.gameOver) return;
+  if (!musicaPermitida()) return;
   if (!sonidoMusica || !sonidoMusica.isLoaded()) return;
   if (sonidoMusica.isPlaying()) return;
 

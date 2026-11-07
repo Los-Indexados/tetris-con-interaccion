@@ -236,7 +236,15 @@
 
     ui.on('screen:change', function (evento) {
       var destino = evento && evento.detail ? evento.detail.screen : null;
-      if (destino === 'game') ajustarLienzo();
+
+      if (destino === 'game') {
+        ajustarLienzo();
+        iniciarAudio();
+        /* Reintento por si el AudioContext se reanuda después del gesto. */
+        window.setTimeout(intentarMusica, 400);
+      } else {
+        detenerMusica();
+      }
     });
   }
 
@@ -255,6 +263,31 @@
 
   var caidaRapidaTimer = null;
   var ultimaColumnaMano = null;
+
+  /* La cámara llega en espejo (driver o "Mirror my camera" del sistema).
+     style.css invierte la imagen del visor y acá se compensan las coordenadas
+     para que el cursor y las columnas coincidan con lo que se ve en pantalla. */
+  function espejoX(x) {
+    return 1 - x;
+  }
+
+  function columnaVisible(columna) {
+    return (COLUMNAS - 1) - columna;
+  }
+
+  /* Destello visual en un botón: ilumina el control sin ejecutar su acción.
+     Sirve para confirmar en pantalla que el gesto se reconoció. */
+  var destellos = {};
+
+  function destello(id, ms) {
+    if (!ui || typeof ui.press !== 'function') return;
+    ui.press(id);
+    if (destellos[id]) window.clearTimeout(destellos[id]);
+    destellos[id] = window.setTimeout(function () {
+      ui.release(id);
+      delete destellos[id];
+    }, ms || 180);
+  }
 
   function iniciarCaidaRapida() {
     if (caidaRapidaTimer) return;
@@ -292,6 +325,7 @@
 
       var columna = evento.detail ? evento.detail.columna : null;
       if (typeof columna !== 'number') return;
+      columna = columnaVisible(columna);
 
       if (ultimaColumnaMano === null) {
         ultimaColumnaMano = columna;
@@ -307,34 +341,48 @@
         if (delta < 0) motor.moverIzquierda();
         else motor.moverDerecha();
       }
+      destello(delta < 0 ? 'control-left' : 'control-right', 140);
     });
 
     hp.on('rotarHorario', function () {
+      destello('control-a');
       accion(function () { motor.rotar(); });
     });
     hp.on('rotarAntihorario', function () {
+      destello('control-b');
       accion(function () { motor.rotarIzquierda(); });
     });
 
-    /* Puño: abre el menú de pausa (el motor se pausa con el evento de la UI). */
+    /* Puño: se ilumina PAUSA y recién después se abre el menú, para que el
+       gesto se vea en pantalla. */
     hp.on('pausar', function () {
-      if (ui.getScreen() === 'game') ui.show('paused');
+      if (ui.getScreen() !== 'game') return;
+      destello('pause', 260);
+      window.setTimeout(function () {
+        if (ui.getScreen() === 'game') ui.show('paused');
+      }, 180);
     });
 
-    /* Dos manos: caída rápida mientras se sostiene. */
-    hp.on('caidaRapidaInicio', iniciarCaidaRapida);
-    hp.on('caidaRapidaFin', detenerCaidaRapida);
+    /* Dos manos: caída rápida mientras se sostiene (▼ queda iluminado). */
+    hp.on('caidaRapidaInicio', function () {
+      ui.press('control-down');
+      iniciarCaidaRapida();
+    });
+    hp.on('caidaRapidaFin', function () {
+      ui.release('control-down');
+      detenerCaidaRapida();
+    });
 
     /* Cursor: mueve el puntero y activa el botón que quede debajo. */
     hp.on('cursorMover', function (datos) {
-      ui.moveCursor(datos.x, datos.y);
+      ui.moveCursor(espejoX(datos.x), datos.y);
     });
     hp.on('cursorClick', function (datos) {
-      ui.clickAt(datos.x, datos.y);
+      ui.clickAt(espejoX(datos.x), datos.y);
     });
 
     document.addEventListener('cursor:mostrar', function (evento) {
-      if (evento.detail) ui.moveCursor(evento.detail.x, evento.detail.y);
+      if (evento.detail) ui.moveCursor(espejoX(evento.detail.x), evento.detail.y);
     });
     document.addEventListener('cursor:ocultar', function () {
       ui.hideCursor();

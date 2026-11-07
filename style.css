@@ -168,6 +168,7 @@
         border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
 }
 
+.tui-btn[data-tui-hover="true"],
 .tui-btn:hover {
     border-color: var(--tui-accent);
     color: #FFFFFF;
@@ -416,6 +417,7 @@
     transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
+.tui-scenario[data-tui-hover="true"],
 .tui-scenario:hover {
     border-color: var(--tui-accent);
     transform: translateY(-3px);
@@ -747,11 +749,14 @@
 .tui-next__cell--S { background: #3DDC84; }
 .tui-next__cell--T { background: #B45CFF; }
 .tui-next__cell--Z { background: #FF4D6D; }
-/* Visor de cámara: el canvas que crea handpose llena el recuadro. */
+/* Visor de cámara: el canvas que crea handpose llena el recuadro.
+   Se invierte en horizontal porque el stream llega espejado; las coordenadas
+   de la mano se compensan en sketch.js (espejoX / columnaVisible). */
 .tui-camera__slot > canvas {
     display: block;
     width: 100% !important;
     height: 100% !important;
+    transform: scaleX(-1);
 }
 
 /* Cursor de mano (coordenadas normalizadas que llegan por moveCursor). */
@@ -1013,6 +1018,7 @@
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85), 0 -1px 0 rgba(255, 255, 255, 0.06);
 }
 
+.tui-pad__btn[data-tui-hover="true"],
 .tui-pad__btn:hover {
     border-color: transparent;
     color: var(--tui-ink);

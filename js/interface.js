@@ -466,6 +466,25 @@
     return Math.min(1, Math.max(0, n));
   }
 
+  var cursorHover = null;
+
+  /* Resalta el botón que está debajo del cursor de mano, para que se vea
+     sobre qué se está apuntando antes de confirmar. */
+  function actualizarHover(nx, ny) {
+    var target = document.elementFromPoint(
+      Math.round(nx * window.innerWidth),
+      Math.round(ny * window.innerHeight)
+    );
+    var button = target && typeof target.closest === 'function'
+      ? target.closest('[data-tui-button]')
+      : null;
+
+    if (button === cursorHover) return;
+    if (cursorHover) cursorHover.removeAttribute('data-tui-hover');
+    cursorHover = button && root.contains(button) ? button : null;
+    if (cursorHover) cursorHover.setAttribute('data-tui-hover', 'true');
+  }
+
   function moveCursor(x, y) {
     if (!ensure()) return false;
     var nx = normalizar(x);
@@ -476,6 +495,7 @@
     node.setAttribute('data-tui-visible', 'true');
     node.style.left = (nx * 100).toFixed(3) + '%';
     node.style.top = (ny * 100).toFixed(3) + '%';
+    actualizarHover(nx, ny);
     return true;
   }
 
@@ -484,6 +504,10 @@
     var node = root.querySelector('.tui-cursor');
     if (!node) return false;
     node.removeAttribute('data-tui-visible');
+    if (cursorHover) {
+      cursorHover.removeAttribute('data-tui-hover');
+      cursorHover = null;
+    }
     return true;
   }
 
