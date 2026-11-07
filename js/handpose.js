@@ -1036,6 +1036,13 @@ const HandPose = (() => {
             owner: owner,
           });
         }
+        // También se emite el evento público: la integración del juego escucha
+        // document, no los callbacks internos.
+        HandPose.emitEvent('gesto:confirmado', {
+          gesto: gesture,
+          manoDuena: owner,
+          timestamp: currentTime,
+        });
         state.hold.cooldownUntil = currentTime + 300; // Cooldown corto para instant
         if (CONFIG.DEBUG) {
           console.log('⚡ Gesto instantáneo: ' + gesture);
