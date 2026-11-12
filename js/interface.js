@@ -526,7 +526,14 @@
     var button = target.closest('[data-tui-button]');
     if (!button || !root.contains(button) || button.disabled) return false;
 
-    return activate(button.getAttribute('data-tui-button'));
+    var id = button.getAttribute('data-tui-button');
+    var activated = activate(id);
+
+    // El clic del puntero es momentáneo: se libera la presión para que un
+    // nuevo pinch sobre el mismo botón vuelva a ejecutar la acción.
+    if (activated) release(id);
+
+    return activated;
   }
 
   /* --------------------------------------------------------------- behavior */

@@ -15,11 +15,12 @@
  *   control-up    -> sin función por ahora (la interfaz igual emite el evento)
  *   control-a     -> rotar (derecha)      control-b     -> rotarIzquierda
  *
- * handpose.js (módulo externo, no se modifica) se consume así:
- *   mover:columna (delta) -> una celda por columna que cruza la mano
- *   rotarHorario/Antihorario -> motor; pausar (puño) -> menú de pausa
- *   caidaRapidaInicio/Fin (dos manos) -> caída rápida sostenida
- *   cursorMover/Click    -> TetrisUI.moveCursor / clickAt
+ * handpose.js se consume así:
+ *   mover:columna (x absoluta) -> columna objetivo; una celda por frame
+ *   pausar (puño, por transición) -> pausa; PULGAR_ARRIBA -> reanudar
+ *   rotarHorario/Antihorario -> rotación con pulgar en partida
+ *   caidaAceleradaInicio/Fin (victoria) -> único gesto de caída acelerada
+ *   cursorMover/Click (solo menús/pausa/over) -> TetrisUI.moveCursor / clickAt
  *   El modo menu/juego se cambia solo al navegar; debug con ?debug en la URL.
  *
  * Los bloques se dibujan en el canvas que vive dentro de [data-tui-board].
@@ -184,7 +185,7 @@
   /* ---------------------------------------------------------------- entrada */
 
   function accion(fn) {
-    if (!motor || !motor.estaActivo()) return;
+    if (!motor || ui.getScreen() !== 'game' || !motor.estaActivo()) return;
     iniciarAudio();
     fn();
   }
@@ -224,6 +225,9 @@
 
     ui.on('game:resume', function () {
       if (motor.pausado) motor.alternarPausa();
+      // El temporizador de caída arranca de cero al reanudar: no debe producirse
+      // una caída inmediata por el tiempo que estuvo pausado.
+      motor.acumuladorGravedad = 0;
     });
 
     ui.on('game:restart', function () {
@@ -261,8 +265,14 @@
 
   /* ------------------------------------------------- handpose (otro módulo) -- */
 
-  var caidaRapidaTimer = null;
-  var ultimaColumnaMano = null;
+  var caidaAceleradaTimer = null;
+  var objetivoMano = null;
+  var direccionMano = 0;
+
+  var CAIDA_ACELERADA_MS = 70;
+  var caidaAceleradaActiva = false;
+  var controlDownPresionado = false;
+  var pulgarArribaResumeLatch = false;
 
   /* La cámara llega en espejo (driver o "Mirror my camera" del sistema).
      style.css invierte la imagen del visor y acá se compensan las coordenadas
@@ -289,21 +299,41 @@
     }, ms || 180);
   }
 
-  function iniciarCaidaRapida() {
-    if (caidaRapidaTimer) return;
-    caidaRapidaTimer = window.setInterval(function () {
-      if (!motor || !motor.estaActivo()) {
-        detenerCaidaRapida();
-        return;
+  /* Caída acelerada activada únicamente por el gesto de victoria. */
+  function actualizarCaidaAcelerada() {
+    var activa = caidaAceleradaActiva;
+
+    if (activa) {
+      if (!controlDownPresionado) {
+        ui.press('control-down');
+        controlDownPresionado = true;
       }
-      motor.bajarRapido();
-    }, 70);
+      if (!caidaAceleradaTimer) {
+        caidaAceleradaTimer = window.setInterval(function () {
+          if (!motor || ui.getScreen() !== 'game' || !motor.estaActivo()) {
+            cancelarCaidaAcelerada();
+            return;
+          }
+          motor.bajarRapido();
+        }, CAIDA_ACELERADA_MS);
+      }
+      return;
+    }
+
+    if (caidaAceleradaTimer) {
+      window.clearInterval(caidaAceleradaTimer);
+      caidaAceleradaTimer = null;
+    }
+    if (controlDownPresionado) {
+      ui.release('control-down');
+      controlDownPresionado = false;
+    }
   }
 
-  function detenerCaidaRapida() {
-    if (!caidaRapidaTimer) return;
-    window.clearInterval(caidaRapidaTimer);
-    caidaRapidaTimer = null;
+  /* Corta la caída acelerada (pausa, game over o restart). */
+  function cancelarCaidaAcelerada() {
+    caidaAceleradaActiva = false;
+    actualizarCaidaAcelerada();
   }
 
   /* Traduce la API de js/handpose.js a las acciones del juego y de la interfaz.
@@ -316,72 +346,97 @@
     if (!hp || typeof hp.on !== 'function') return;
     handPoseConectado = true;
 
-    /* Movimiento: se escucha el evento crudo de columna y se mueve una celda
-       por cada columna que cruza la mano. El callback de la integración mapea
-       la posición absoluta (izquierda/derecha del centro), lo que empujaría la
-       pieza sin parar hacia un lado mientras la mano siga en esa mitad. */
+    /* Movimiento absoluto: handpose.js envía la posición normalizada de la
+       mano (0-1) y aplicarMovimientoMano() lleva la pieza una casilla por
+       frame hacia la columna correspondiente. Así el desplazamiento de la mano
+       es proporcional a toda la cuadrícula y la pieza no se queda a mitad de
+       camino cuando la mano llega al borde. */
     document.addEventListener('mover:columna', function (evento) {
       if (!motor || ui.getScreen() !== 'game' || !motor.estaActivo()) return;
 
-      var columna = evento.detail ? evento.detail.columna : null;
-      if (typeof columna !== 'number') return;
-      columna = columnaVisible(columna);
+      var detalle = evento.detail || {};
 
-      if (ultimaColumnaMano === null) {
-        ultimaColumnaMano = columna;
+      // x normalizada es la referencia principal (coordenadas de cámara).
+      if (typeof detalle.x === 'number') {
+        objetivoMano = espejoX(detalle.x);
         return;
       }
 
-      var delta = columna - ultimaColumnaMano;
-      ultimaColumnaMano = columna;
-      if (delta === 0) return;
-
-      var pasos = Math.min(4, Math.abs(delta));
-      for (var i = 0; i < pasos; i++) {
-        if (delta < 0) motor.moverIzquierda();
-        else motor.moverDerecha();
-      }
-      destello(delta < 0 ? 'control-left' : 'control-right', 140);
+      // Compatibilidad con eventos que solo traen la columna entera.
+      var columna = detalle.columna;
+      if (typeof columna !== 'number') return;
+      objetivoMano = columnaVisible(columna) / (COLUMNAS - 1);
     });
 
     hp.on('rotarHorario', function () {
+      if (pulgarArribaResumeLatch || ui.getScreen() !== 'game') return;
       destello('control-a');
       accion(function () { motor.rotar(); });
     });
     hp.on('rotarAntihorario', function () {
+      if (pulgarArribaResumeLatch || ui.getScreen() !== 'game') return;
       destello('control-b');
       accion(function () { motor.rotarIzquierda(); });
     });
 
-    /* Puño: se ilumina PAUSA y recién después se abre el menú, para que el
-       gesto se vea en pantalla. */
+    /* Puño: pausa por transición. Mantener el puño no repite. Para reanudar
+       se usa el pulgar levantado, no otro puño. */
     hp.on('pausar', function () {
       if (ui.getScreen() !== 'game') return;
       destello('pause', 260);
-      window.setTimeout(function () {
-        if (ui.getScreen() === 'game') ui.show('paused');
-      }, 180);
+      ui.trigger('pause');
     });
 
-    /* Dos manos: caída rápida mientras se sostiene (▼ queda iluminado). */
-    hp.on('caidaRapidaInicio', function () {
-      ui.press('control-down');
-      iniciarCaidaRapida();
-    });
-    hp.on('caidaRapidaFin', function () {
-      ui.release('control-down');
-      detenerCaidaRapida();
+    /* Pulgar levantado: reanudar cuando la partida está en pausa.
+       El latch evita que, al mantener el pulgar después de reanudar, el
+       gesto de rotación existente empiece a girar la pieza. */
+    document.addEventListener('gesto:confirmado', function (evento) {
+      if (!evento.detail || evento.detail.gesto !== 'PULGAR_ARRIBA') return;
+      if (ui.getScreen() !== 'paused') return;
+
+      pulgarArribaResumeLatch = true;
+      destello('resume', 260);
+      ui.trigger('resume');
     });
 
-    /* Cursor: mueve el puntero y activa el botón que quede debajo. */
+    document.addEventListener('gesto:perdido', function (evento) {
+      if (evento.detail && evento.detail.gesto === 'PULGAR_ARRIBA') {
+        pulgarArribaResumeLatch = false;
+      }
+    });
+
+    // Refuerzo: si el gesto del pulgar cambia directamente a otro gesto
+    // reconocido, el latch también debe liberarse. Algunos emisores pueden
+    // informar el gesto nuevo con "gesto:detectado" sin "gesto:perdido".
+    document.addEventListener('gesto:detectado', function (evento) {
+      if (!evento.detail || evento.detail.gesto === 'PULGAR_ARRIBA') return;
+      pulgarArribaResumeLatch = false;
+    });
+
+    /* Victoria: único gesto de caída acelerada (▼ queda iluminado). */
+    hp.on('caidaAceleradaInicio', function () {
+      if (ui.getScreen() !== 'game' || !motor.estaActivo()) return;
+      caidaAceleradaActiva = true;
+      actualizarCaidaAcelerada();
+    });
+    hp.on('caidaAceleradaFin', function () {
+      caidaAceleradaActiva = false;
+      actualizarCaidaAcelerada();
+    });
+
+    /* Cursor: mueve el puntero y activa el botón que quede debajo.
+       Nunca durante la partida activa: ahí los gestos controlan el Tetris. */
     hp.on('cursorMover', function (datos) {
+      if (ui.getScreen() === 'game') return;
       ui.moveCursor(espejoX(datos.x), datos.y);
     });
     hp.on('cursorClick', function (datos) {
+      if (ui.getScreen() === 'game') return;
       ui.clickAt(espejoX(datos.x), datos.y);
     });
 
     document.addEventListener('cursor:mostrar', function (evento) {
+      if (ui.getScreen() === 'game') return;
       if (evento.detail) ui.moveCursor(espejoX(evento.detail.x), evento.detail.y);
     });
     document.addEventListener('cursor:ocultar', function () {
@@ -391,8 +446,16 @@
     /* El módulo distingue navegación de menú y de juego. */
     ui.on('screen:change', function (evento) {
       var destino = evento && evento.detail ? evento.detail.screen : null;
-      if (destino !== 'game') detenerCaidaRapida();
-      ultimaColumnaMano = null;
+
+      // Al cambiar de pantalla se corta toda acción continua y se olvida el
+      // objetivo de la mano: nada debe seguir moviendo piezas fuera de partida.
+      cancelarCaidaAcelerada();
+      objetivoMano = null;
+      direccionMano = 0;
+
+      // Durante la partida activa el puntero no debe verse nunca.
+      if (destino === 'game') ui.hideCursor();
+
       try {
         hp.setModo(destino === 'game' ? 'juego' : 'menu');
       } catch (error) {
@@ -417,6 +480,76 @@
   }
 
   /* ------------------------------------------------------------------- p5 */
+
+  /* Lleva la pieza activa hacia la columna objetivo de la mano, una casilla
+     por frame. Se usa la caja ocupada real de la pieza (min/max de la forma)
+     para que su huella recorra todo el tablero y respete los bordes. */
+  function aplicarMovimientoMano() {
+    if (
+      objetivoMano === null ||
+      !motor ||
+      ui.getScreen() !== 'game' ||
+      !motor.estaActivo()
+    ) {
+      return;
+    }
+
+    var hp = window.HandPose;
+    if (!hp || !hp.estado) return;
+
+    // Con dos manos se pausa el movimiento horizontal. La caída acelerada
+    // queda reservada exclusivamente al gesto de victoria.
+    var hpConfig = hp.config || {};
+    if (hpConfig.MOVEMENT_PAUSE_ON_DOUBLE_HAND !== false && hp.estado.cantidadManos >= 2) {
+      direccionMano = 0;
+      return;
+    }
+
+    var gesto = hp.estado.gesto;
+
+    // La mano cerrada (o cualquier otro gesto) no debe mover la pieza.
+    if (!gesto || gesto.indexOf('MANO_ABIERTA') !== 0) {
+      objetivoMano = null;
+      direccionMano = 0;
+      return;
+    }
+
+    var pieza = motor.piezaActual;
+    if (!pieza) return;
+
+    var min = Infinity;
+    var max = -Infinity;
+    for (var f = 0; f < pieza.forma.length; f++) {
+      for (var c = 0; c < pieza.forma[f].length; c++) {
+        if (!pieza.forma[f][c]) continue;
+        if (c < min) min = c;
+        if (c > max) max = c;
+      }
+    }
+    if (!isFinite(min) || !isFinite(max)) return;
+
+    var anchoVisual = max - min + 1;
+    var maxIzquierda = Math.max(0, COLUMNAS - anchoVisual);
+    var objetivoIzquierda = Math.round(objetivoMano * maxIzquierda);
+    objetivoIzquierda = Math.max(0, Math.min(maxIzquierda, objetivoIzquierda));
+
+    var actualIzquierda = pieza.x + min;
+    var dx = objetivoIzquierda - actualIzquierda;
+
+    if (dx === 0) {
+      direccionMano = 0;
+      return;
+    }
+
+    var direccion = dx > 0 ? 1 : -1;
+    if (direccion !== direccionMano) {
+      direccionMano = direccion;
+      destello(direccion > 0 ? 'control-right' : 'control-left', 120);
+    }
+
+    if (direccion > 0) motor.moverDerecha();
+    else motor.moverIzquierda();
+  }
 
   window.setup = function () {
     ui = window.TetrisUI;
@@ -460,6 +593,7 @@
     var enPartida = ui.getScreen() === 'game';
     if (enPartida && !motor.pausado && !motor.gameOver) {
       motor.actualizar(deltaTime);
+      aplicarMovimientoMano();
     }
 
     if (motor.gameOver && !finMostrado) {

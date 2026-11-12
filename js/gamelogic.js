@@ -31,6 +31,15 @@
 const COLUMNAS = 16;
 const FILAS = 16;
 
+/**
+ * Ajustes generales del juego.
+ * INTERVALO_CAIDA_MS es el tiempo, en milisegundos, entre cada descenso
+ * automático de la pieza en el nivel 1. Subilo para dar más tiempo al jugador.
+ */
+const CONFIG_JUEGO = {
+  INTERVALO_CAIDA_MS: 1100,
+};
+
 // ─── Las 7 piezas clásicas ───────────────────────────────────────────────────
 const TIPOS_PIEZA = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
 
@@ -234,7 +243,7 @@ class JuegoTetris {
    * @param {number} [opciones.filasPorNivel] líneas necesarias para subir de nivel
    */
   constructor(opciones = {}) {
-    this.intervaloBase = opciones.intervaloBase ?? 800;
+    this.intervaloBase = opciones.intervaloBase ?? CONFIG_JUEGO.INTERVALO_CAIDA_MS;
     this.intervaloMinimo = opciones.intervaloMinimo ?? 90;
     this.aceleracionNivel = opciones.aceleracionNivel ?? 70;
     this.filasPorNivel = opciones.filasPorNivel ?? 10;
@@ -610,6 +619,7 @@ if (typeof window !== 'undefined') {
     Pieza,
     Tablero,
     JuegoTetris,
+    CONFIG_JUEGO,
     COLUMNAS,
     FILAS,
     TIPOS_PIEZA,
@@ -623,6 +633,7 @@ if (typeof module !== 'undefined' && module.exports) {
     Pieza,
     Tablero,
     JuegoTetris,
+    CONFIG_JUEGO,
     COLUMNAS,
     FILAS,
     TIPOS_PIEZA,

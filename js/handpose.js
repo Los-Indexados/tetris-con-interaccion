@@ -37,37 +37,43 @@ const CONFIG = {
   FINGER_EXTENDED_THRESHOLD: 0.05, // Distancia mínima entre punta y articulación media
   
   // Umbrales de movimiento
-  HAND_MOVEMENT_THRESHOLD: 0.05, // Cambio mínimo en posición X para detectar movimiento
-  
-  // Umbrales para contacto dedo-palma (click)
-  FINGER_PALM_CONTACT_THRESHOLD: 0.08, // Distancia máxima entre punta y palma
-  
+  HAND_MOVEMENT_THRESHOLD: 0.006, // Cambio mínimo de X entre frames para marcar la dirección del gesto
+
+  // Umbral para el clic del puntero: distancia máxima entre pulgar e índice.
+  THUMB_INDEX_PINCH_THRESHOLD: 0.04,
+
+  // Un pulgar levantado debe quedar lejos de las articulaciones de los otros
+  // dedos; si está envuelto en el puño, queda cerca y gana la pausa.
+  THUMB_FINGER_PROXIMITY_THRESHOLD: 0.06,
+
   // Configuración de sostenimiento (hold)
   HOLD_ENABLED: true, // Activar sostenimiento
-  HOLD_DURATION_MS: {
-    'PUÑO': 800, // Pausar
-    'ÍNDICE_CLICK': 600, // Click (si se usa sostenimiento)
-  },
+  HOLD_DURATION_MS: {},
   HOLD_TOLERANCE_MS: 150, // Tolerancia de fallo momentáneo del detector
   HOLD_COOLDOWN_MS: 1500, // Cooldown después de confirmar
-  
+
   // Gestos con sostenimiento (requieren hold + barra de progreso)
-  GESTURES_WITH_HOLD: ['PUÑO', 'ÍNDICE_CLICK'],
-  
+  GESTURES_WITH_HOLD: [],
+
+  PAUSE_GESTURE_COOLDOWN_MS: 500, // Evita dobles toggles por parpadeo del detector
+
   // Gestos instantáneos (sin hold, solo cooldown corto)
   GESTURES_INSTANT: ['PULGAR_ARRIBA', 'PULGAR_IZQUIERDA'],
-  
-  // Gestos continuos (sin hold, se activan mientras duren)
-  GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'ÍNDICE_LEVANTADO', 'DOS_MANOS'],
 
-  // Configuración de control de movimiento
+  // Gestos continuos (sin hold, se activan mientras duren)
+  GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'ÍNDICE_LEVANTADO', 'VICTORIA'],
+
+  // Control horizontal absoluto con mano abierta.
+  // La posición de la palma se mapea al ancho completo de la cuadrícula:
+  // el borde izquierdo/derecho de la cámara satura en la columna 0/15.
   MOVEMENT_CONTROL_ENABLED: true,
   MOVEMENT_COLUMNS: 16, // Número de columnas (ancho del tablero)
-  MOVEMENT_EDGE_MARGIN: 0.1, // Ignorar 10% de cada borde
-  MOVEMENT_HYSTERESIS: 0.5, // Histéresis entre columnas (0-1, como % del ancho de columna)
+  MOVEMENT_EDGE_MARGIN: 0.1, // Margen de calibración; fuera de él el objetivo satura en 0/15
+  MOVEMENT_JITTER_THRESHOLD: 0.01, // Movimiento mínimo para recalcular el objetivo (~6 px a 640)
+  MOVEMENT_MAX_STEPS_PER_EVENT: 4, // Tope para consumidores que usan deltas (compatibilidad)
   MOVEMENT_MODE_INITIAL: 'menu', // Modo inicial: 'menu' o 'juego'
-  MOVEMENT_PAUSE_ON_DOUBLE_HAND: true, // Pausar movimiento cuando hay 2 manos (caída rápida)
-  MOVEMENT_DOUBLE_HAND_TIMEOUT: 150, // Retardo en ms antes de emitir 'caida:fin'
+  MOVEMENT_PAUSE_ON_DOUBLE_HAND: true, // Pausar el movimiento horizontal cuando hay 2 manos
+  MOVEMENT_DOUBLE_HAND_TIMEOUT: 150, // Retardo en ms antes de reanudar el movimiento
 };
 
 // ============================================================================
@@ -105,6 +111,10 @@ const HandPose = (() => {
       owner: null, // Mano dueña del gesto ("left" o "right")
       ignored: null, // Mano ignorada por conflicto
       lastUpdate: 0, // Timestamp del último gesto
+      lastPunoTime: 0, // Última transición a PUÑO confirmada (cooldown)
+      pointer: false, // ¿Hay una mano con el índice levantado?
+      pointerHand: null, // Lado de la mano que controla el puntero
+      pinching: false, // ¿El pulgar toca el índice en la mano del puntero?
     },
     hold: {
       active: false, // Si hay un hold en curso
@@ -122,14 +132,14 @@ const HandPose = (() => {
       cursorX: 0, // Posición X normalizada (0-1)
       cursorY: 0, // Posición Y normalizada (0-1)
       lastConfirmedGesture: null, // Último gesto confirmado
-      dosManosCaida: false, // Si está en caída rápida (dos manos)
     },
     movement: {
-      currentColumn: 0, // Columna actual (0-15)
-      lastColumn: -1, // Última columna emitida en evento
+      currentColumn: Math.floor(CONFIG.MOVEMENT_COLUMNS / 2), // Último objetivo (0-15), para debug/estado
       controlHand: null, // Mano que controla el movimiento
       doubleHandTime: 0, // Timestamp cuando se detectaron dos manos
       pausedByDoubleHand: false, // Si está pausado por caída rápida
+      targetColumn: Math.floor(CONFIG.MOVEMENT_COLUMNS / 2), // Objetivo absoluto en coordenadas de cámara
+      lastTargetRawX: null, // Última X cruda usada para recalcular el objetivo
     },
   };
 
@@ -355,6 +365,21 @@ const HandPose = (() => {
       state.detection.hands = [];
       state.hands = [];
       state.detection.lastHandCount = 0;
+
+      // Sin manos no hay gesto vigente: se limpia para que la UI reciba
+      // "gesto:perdido" y "mano:perdida" correctamente.
+      state.gestures.current = null;
+      state.gestures.owner = null;
+      state.gestures.ignored = null;
+      state.gestures.pointer = false;
+      state.gestures.pointerHand = null;
+      state.gestures.pinching = false;
+
+      resetMovementTracking(state);
+      state.movement.controlHand = null;
+
+      updateEventState(state);
+      updateMovementControl(state);
       return;
     }
 
@@ -426,14 +451,14 @@ const HandPose = (() => {
     state.hands = smoothedHands;
 
     // Actualizar eventos de UI
-    updateEventState();
+    updateEventState(state);
 
     // Actualizar control de movimiento
-    updateMovementControl();
+    updateMovementControl(state);
 
     // Dibujar debug de movimiento (si está en modo DEBUG)
     if (CONFIG.DEBUG) {
-      drawMovementDebug();
+      drawMovementDebug(state, p5Instance);
     }
 
     // Actualizar FPS de detección
@@ -666,6 +691,14 @@ const HandPose = (() => {
 
       if (timeSinceLastUpdate > tolerance) {
         sideState.disappeared = true;
+
+        // Olvidar la última posición: si la mano reaparece, el primer frame
+        // solo fija la referencia y no arrastra un salto de la pieza.
+        if (handPositionHistory[side]) {
+          handPositionHistory[side].lastPalmX = null;
+          handPositionHistory[side].moving = false;
+          handPositionHistory[side].direction = null;
+        }
         // Limpiar estado después de desaparecer
         if (timeSinceLastUpdate > tolerance + 500) {
           sideState.landmarks = [];
@@ -728,18 +761,53 @@ const HandPose = (() => {
     return isFingerExtended(hand, [8, 6]);
   }
 
-  // Detectar si dedo toca palma (click)
-  function isIndexTouchingPalm(hand) {
-    const indexTip = hand.landmarks[8]; // Punta del índice
-    const palmCenter = hand.palmCenter;
+  // Pose del puntero: índice levantado; medio, anular y meñique doblados.
+  // El pulgar se ignora para que pueda juntarse con el índice y hacer clic.
+  function isPointerPose(hand) {
+    if (!isIndexExtended(hand)) return false;
+    if (isFingerExtended(hand, [12, 10])) return false;
+    if (isFingerExtended(hand, [16, 14])) return false;
+    if (isFingerExtended(hand, [20, 18])) return false;
+    return true;
+  }
 
-    if (!indexTip || !palmCenter) return false;
+  // Pulgar realmente levantado: extendido, por encima de su base y lejos de
+  // las articulaciones de los otros dedos. Un pulgar envuelto en el puño no
+  // cumple la distancia y deja que la pausa tenga prioridad.
+  function isThumbUp(hand) {
+    if (!isThumbExtended(hand)) return false;
 
-    const distance = Math.sqrt(
-      (indexTip[0] - palmCenter[0]) ** 2 + (indexTip[1] - palmCenter[1]) ** 2
+    const tip = hand.landmarks[4];
+    const base = hand.landmarks[2];
+    if (!tip || !base) return false;
+
+    // La punta del pulgar debe quedar por encima de su base (Y menor).
+    if (tip[1] >= base[1]) return false;
+
+    const fingerMids = [6, 10, 14, 18]
+      .map((index) => hand.landmarks[index])
+      .filter(Boolean);
+
+    const nearFinger = fingerMids.some(
+      (point) => distance(tip, point) < CONFIG.THUMB_FINGER_PROXIMITY_THRESHOLD
     );
 
-    return distance < CONFIG.FINGER_PALM_CONTACT_THRESHOLD;
+    return !nearFinger;
+  }
+
+  // Clic del puntero: la punta del pulgar toca la punta del índice.
+  // Se usan los landmarks crudos para que el clic sea inmediato y no espere
+  // al suavizado del resto de la mano.
+  function isThumbIndexPinching(hand) {
+    const landmarks = hand.landmarksRaw || hand.landmarks;
+    if (!landmarks) return false;
+
+    const thumbTip = landmarks[4];
+    const indexTip = landmarks[8];
+
+    if (!thumbTip || !indexTip) return false;
+
+    return distance(thumbTip, indexTip) < CONFIG.THUMB_INDEX_PINCH_THRESHOLD;
   }
 
   // Contar dedos extendidos (0-5)
@@ -773,51 +841,66 @@ const HandPose = (() => {
       return 'MANO_ABIERTA';
     }
 
-    // PUÑO (0 dedos)
-    if (extendedCount === 0) {
-      return 'PUÑO';
+    const indexUp = isIndexExtended(hand);
+    const middleUp = isFingerExtended(hand, [12, 10]);
+    const ringUp = isFingerExtended(hand, [16, 14]);
+    const pinkyUp = isFingerExtended(hand, [20, 18]);
+
+    // PUÑO vs PULGAR_ARRIBA: los cuatro dedos están doblados. Si el pulgar
+    // está claramente levantado gana el pulgar; si está envuelto en el puño,
+    // gana la pausa (prioridad de pausa).
+    if (!indexUp && !middleUp && !ringUp && !pinkyUp) {
+      return isThumbUp(hand) ? 'PULGAR_ARRIBA' : 'PUÑO';
     }
 
-    // PULGAR_ARRIBA (solo pulgar)
-    if (isThumbExtended(hand) && extendedCount === 1) {
-      return 'PULGAR_ARRIBA';
+    // VICTORIA (índice y medio extendidos; anular y meñique doblados).
+    // El pulgar se ignora a propósito: puede estar en cualquier posición.
+    if (indexUp && middleUp && !ringUp && !pinkyUp) {
+      return 'VICTORIA';
     }
 
-    // ÍNDICE_LEVANTADO (solo índice)
-    if (isIndexExtended(hand) && extendedCount === 1) {
+    // ÍNDICE_LEVANTADO (puntero): solo índice; pulgar libre para el clic.
+    if (isPointerPose(hand)) {
       return 'ÍNDICE_LEVANTADO';
-    }
-
-    // ÍNDICE_CLICK (índice toca palma)
-    if (isIndexTouchingPalm(hand)) {
-      return 'ÍNDICE_CLICK';
     }
 
     return null; // Gesto no reconocido
   }
 
-  // Detectar movimiento de mano abierta
+  // Detectar movimiento de mano abierta (solo para nombrar el gesto: el
+  // desplazamiento real de la pieza lo mide updateMovementControl).
   function detectHandMovement(hand, side) {
     const palmX = hand.palmCenter[0];
     const history = handPositionHistory[side];
 
-    if (history.lastPalmX === null) {
-      history.lastPalmX = palmX;
+    if (!history) {
       return null;
     }
 
-    const diff = palmX - history.lastPalmX;
+    const previousX = history.lastPalmX;
 
-    // Si cambio es pequeño, no hay movimiento
+    // La referencia avanza en cada frame: así el gesto refleja el movimiento
+    // actual y no se queda "pegado" esperando un salto grande.
+    history.lastPalmX = palmX;
+
+    if (previousX === null) {
+      history.moving = false;
+      history.direction = null;
+      return null;
+    }
+
+    const diff = palmX - previousX;
+
+    // Si el cambio entre frames es mínimo, la mano está quieta.
     if (Math.abs(diff) < CONFIG.HAND_MOVEMENT_THRESHOLD) {
       history.moving = false;
+      history.direction = null;
       return null;
     }
 
-    // Detectar dirección
+    // Dirección en coordenadas de cámara (el visor se espeja en sketch.js).
     history.direction = diff > 0 ? 'DERECHA' : 'IZQUIERDA';
     history.moving = true;
-    history.lastPalmX = palmX;
 
     return history.direction;
   }
@@ -854,6 +937,9 @@ const HandPose = (() => {
   function detectAllGestures(hands, currentTime) {
     if (!CONFIG.GESTURE_ENABLED || !hands || hands.length === 0) {
       state.gestures.current = null;
+      state.gestures.pointer = false;
+      state.gestures.pointerHand = null;
+      state.gestures.pinching = false;
       return;
     }
 
@@ -863,6 +949,7 @@ const HandPose = (() => {
     let detectedGesture = null;
     let gestureOwner = null;
     let ignoredHand = null;
+    let punoOwner = null;
 
     hands.forEach((hand) => {
       const side = hand.side.toLowerCase();
@@ -881,6 +968,12 @@ const HandPose = (() => {
         detectedGesture = gesture;
         gestureOwner = side;
 
+        // Prioridad de pausa: si cualquier mano hace un puño, ese gesto gana
+        // sobre el resto (por ejemplo, una mano abierta con la otra en puño).
+        if (gesture === 'PUÑO') {
+          punoOwner = side;
+        }
+
         // Si hay movimiento con mano abierta, agregar dirección
         if (gesture === 'MANO_ABIERTA' && movement) {
           detectedGesture = 'MANO_ABIERTA_' + movement;
@@ -897,10 +990,33 @@ const HandPose = (() => {
     });
 
     // Actualizar estado de gestos
+    if (punoOwner) {
+      detectedGesture = 'PUÑO';
+      gestureOwner = punoOwner;
+    }
+
     state.gestures.current = detectedGesture;
     state.gestures.owner = gestureOwner;
     state.gestures.ignored = ignoredHand;
     state.gestures.lastUpdate = currentTime;
+
+    // Puntero: mano con el índice levantado. Se busca la mano dueña si el
+    // gesto actual es el puntero; si no, cualquier mano en pose de puntero.
+    let pointerHand = null;
+
+    if (detectedGesture === 'ÍNDICE_LEVANTADO' && gestureOwner) {
+      pointerHand = hands.find(
+        (hand) => hand.side.toLowerCase() === gestureOwner
+      ) || null;
+    }
+
+    if (!pointerHand) {
+      pointerHand = hands.find(isPointerPose) || null;
+    }
+
+    state.gestures.pointer = !!pointerHand;
+    state.gestures.pointerHand = pointerHand ? pointerHand.side.toLowerCase() : null;
+    state.gestures.pinching = pointerHand ? isThumbIndexPinching(pointerHand) : false;
 
     // Log en DEBUG
     if (CONFIG.DEBUG && detectedGesture) {
@@ -1312,11 +1428,14 @@ const HandPose = (() => {
       state.hold.owner = null;
       
       state.ui.mode = isGameMode ? 'juego' : 'menu';
-      
-      // Reiniciar control de movimiento (olvidar última columna)
-      state.movement.currentColumn = Math.floor(CONFIG.MOVEMENT_COLUMNS / 2);
-      state.movement.lastColumn = -1;
-      
+
+      // Reiniciar el objetivo absoluto: el próximo frame con mano abierta
+      // vuelve a calcular la columna según la posición de la palma.
+      resetMovementTracking(state);
+      state.movement.controlHand = null;
+      state.movement.pausedByDoubleHand = false;
+      state.movement.doubleHandTime = 0;
+
       this.emitEvent('modo:cambiado', {
         modo: state.ui.mode,
         timestamp: Date.now(),
@@ -1369,9 +1488,6 @@ const HandPose = (() => {
       get manoIgnorada() {
         return state.gestures.ignored;
       },
-      get caidaRapida() {
-        return state.ui.dosManosCaida;
-      },
       get movimiento() {
         return {
           columnaActual: state.movement.currentColumn,
@@ -1410,8 +1526,9 @@ const HandPose = (() => {
 // - "cursor:ocultar"          { timestamp }
 // - "cursor:mover"            { x, y, timestamp }
 // - "cursor:click"            { x, y, mano, timestamp }
-// - "caida:inicio"            { timestamp }
-// - "caida:fin"               { timestamp }
+// - "mover:columna"           { columna (0-15), absoluta: true, timestamp }
+// - "victoria:inicio"         { mano, timestamp }
+// - "victoria:fin"            { timestamp }
 // - "modo:cambiado"           { modo (menu/juego), timestamp }
 //
 // EJEMPLO DE USO:
@@ -1428,27 +1545,79 @@ const eventState = {
   lastGesture: null,
   lastHandCount: 0,
   lastCursorVisible: false,
-  lastDosManos: false,
+  lastPinching: false,
 };
 
-function updateEventState() {
+function updateEventState(state) {
   const now = Date.now();
+  const previousGesture = eventState.lastGesture;
 
-  // GESTO DETECTADO
+  // GESTO DETECTADO / PERDIDO
+  // Al cambiar de un gesto reconocido a otro se emiten ambos eventos: el
+  // anterior se pierde y el nuevo se detecta. Así los consumidores pueden
+  // liberar estados asociados al gesto anterior (por ejemplo, el latch del
+  // pulgar que reanuda la partida).
   if (state.gestures.current !== eventState.lastGesture) {
+    if (eventState.lastGesture) {
+      HandPose.emitEvent('gesto:perdido', {
+        gesto: eventState.lastGesture,
+        timestamp: now,
+      });
+    }
+
     if (state.gestures.current) {
       HandPose.emitEvent('gesto:detectado', {
         gesto: state.gestures.current,
         mano: state.gestures.owner,
         timestamp: now,
       });
-    } else if (eventState.lastGesture) {
-      HandPose.emitEvent('gesto:perdido', {
-        gesto: eventState.lastGesture,
-        timestamp: now,
-      });
     }
+
     eventState.lastGesture = state.gestures.current;
+  }
+
+  // PUÑO: pausa/reanudar por TRANSICIÓN (flanco de subida).
+  // Mantener el puño cerrado no repite la acción: solo se confirma cuando el
+  // gesto aparece después de haber estado ausente. El cooldown protege de
+  // parpadeos de un frame del detector.
+  if (
+    state.gestures.current === 'PUÑO' &&
+    previousGesture !== 'PUÑO' &&
+    now - state.gestures.lastPunoTime >= CONFIG.PAUSE_GESTURE_COOLDOWN_MS
+  ) {
+    state.gestures.lastPunoTime = now;
+    HandPose.emitEvent('gesto:confirmado', {
+      gesto: 'PUÑO',
+      manoDuena: state.gestures.owner,
+      timestamp: now,
+      transicion: true,
+    });
+    if (CONFIG.DEBUG) {
+      console.log('✊ PUÑO: acción por transición');
+    }
+  }
+
+  // VICTORIA: caída acelerada continua mientras el gesto se mantiene.
+  // inicio solo en partida; fin siempre para liberar el estado del consumidor.
+  if (
+    state.ui.mode === 'juego' &&
+    state.gestures.current === 'VICTORIA' &&
+    previousGesture !== 'VICTORIA'
+  ) {
+    HandPose.emitEvent('victoria:inicio', {
+      mano: state.gestures.owner,
+      timestamp: now,
+    });
+    if (CONFIG.DEBUG) {
+      console.log('✌️ VICTORIA: caída acelerada');
+    }
+  } else if (previousGesture === 'VICTORIA' && state.gestures.current !== 'VICTORIA') {
+    HandPose.emitEvent('victoria:fin', {
+      timestamp: now,
+    });
+    if (CONFIG.DEBUG) {
+      console.log('✌️ VICTORIA: fin de caída acelerada');
+    }
   }
 
   // GESTO PROGRESO
@@ -1495,218 +1664,250 @@ function updateEventState() {
     eventState.lastHandCount = state.detection.hands.length;
   }
 
+  // PUNTERO (índice levantado). Solo fuera de la partida activa: en juego
+  // los gestos controlan exclusivamente el Tetris y el cursor no aparece.
+  let pointerHand = null;
+  if (state.gestures.pointer && state.gestures.pointerHand) {
+    pointerHand = state.detection.hands.find(
+      (hand) => hand.side.toLowerCase() === state.gestures.pointerHand
+    ) || null;
+  }
+
+  const pointerActive = state.ui.mode !== 'juego' && !!pointerHand;
+
+  if (pointerHand) {
+    const indexTip =
+      (pointerHand.landmarks && pointerHand.landmarks[8]) ||
+      pointerHand.palmCenter;
+
+    if (indexTip) {
+      state.ui.cursorX = indexTip[0];
+      state.ui.cursorY = indexTip[1];
+    }
+  }
+
   // CURSOR: MOSTRAR / OCULTAR
-  const cursorDebeSerVisible = state.gestures.current === 'ÍNDICE_LEVANTADO';
-  if (cursorDebeSerVisible && !eventState.lastCursorVisible) {
+  if (pointerActive && !eventState.lastCursorVisible) {
     state.ui.cursorVisible = true;
     HandPose.emitEvent('cursor:mostrar', {
       x: state.ui.cursorX,
       y: state.ui.cursorY,
-      mano: state.gestures.owner,
+      mano: pointerHand.side,
       timestamp: now,
     });
     eventState.lastCursorVisible = true;
-  } else if (!cursorDebeSerVisible && eventState.lastCursorVisible) {
+    // Si el usuario ya venía haciendo pinch, no disparar un clic por aparecer:
+    // el clic requiere una presión nueva estando el puntero visible.
+    eventState.lastPinching = state.gestures.pinching;
+  } else if (!pointerActive && eventState.lastCursorVisible) {
     state.ui.cursorVisible = false;
     HandPose.emitEvent('cursor:ocultar', {
       timestamp: now,
     });
     eventState.lastCursorVisible = false;
+    eventState.lastPinching = false;
   }
 
-  // CURSOR: MOVER (si está visible)
-  if (state.ui.cursorVisible && state.detection.hands.length > 0) {
-    // Encontrar la mano dueña del cursor (índice levantado)
-    const cursorOwner = state.detection.hands.find(
-      (h) => h.side.toLowerCase() === state.gestures.owner
-    );
-    if (cursorOwner) {
-      state.ui.cursorX = cursorOwner.palmCenter[0];
-      state.ui.cursorY = cursorOwner.palmCenter[1];
-      HandPose.emitEvent('cursor:mover', {
+  // CURSOR: MOVER (el puntero sigue la punta del índice)
+  if (pointerActive) {
+    HandPose.emitEvent('cursor:mover', {
+      x: state.ui.cursorX,
+      y: state.ui.cursorY,
+      timestamp: now,
+    });
+  }
+
+  // CURSOR: CLICK — una sola vez por cada presión (flanco de subida del pinch).
+  if (pointerActive) {
+    if (state.gestures.pinching && !eventState.lastPinching) {
+      HandPose.emitEvent('cursor:click', {
         x: state.ui.cursorX,
         y: state.ui.cursorY,
+        mano: pointerHand.side,
         timestamp: now,
       });
     }
-  }
-
-  // CURSOR: CLICK (índice toca palma)
-  if (state.gestures.current === 'ÍNDICE_CLICK' && state.ui.cursorVisible) {
-    HandPose.emitEvent('cursor:click', {
-      x: state.ui.cursorX,
-      y: state.ui.cursorY,
-      mano: state.gestures.owner,
-      timestamp: now,
-    });
-  }
-
-  // CAÍDA RÁPIDA: DOS MANOS (inicio / fin)
-  const dosManosCaida = state.detection.hands.length === 2;
-  if (dosManosCaida && !eventState.lastDosManos) {
-    state.ui.dosManosCaida = true;
-    HandPose.emitEvent('caida:inicio', {
-      timestamp: now,
-    });
-    eventState.lastDosManos = true;
-  } else if (!dosManosCaida && eventState.lastDosManos) {
-    state.ui.dosManosCaida = false;
-    HandPose.emitEvent('caida:fin', {
-      timestamp: now,
-    });
-    eventState.lastDosManos = false;
+    eventState.lastPinching = state.gestures.pinching;
+  } else {
+    eventState.lastPinching = false;
   }
 }
 
 // =========================================================================
 // SECCIÓN: CONTROL DE MOVIMIENTO
 // =========================================================================
-// Traduce posición de mano abierta y doble mano en movimiento horizontal
-// y eventos de dirección según el modo actual (menú / juego).
+// Control horizontal ABSOLUTO con mano abierta:
+//
+//   1. Se identifica la mano abierta con el gesto existente
+//      (MANO_ABIERTA / MANO_ABIERTA_IZQUIERDA / MANO_ABIERTA_DERECHA).
+//   2. La posición X de la palma se normaliza contra el ancho de detección de
+//      la cámara y se convierte directamente a una columna de la cuadrícula
+//      (0 .. MOVEMENT_COLUMNS - 1). No se acumulan píxeles ni desplazamientos
+//      relativos: el objetivo es siempre la columna real bajo la mano.
+//   3. El borde izquierdo/derecho de la cámara satura en la primera/última
+//      columna: si la mano llega al extremo, la pieza también puede llegar.
+//   4. Se emite "mover:columna" con la columna objetivo absoluta. sketch.js
+//      mueve la pieza una casilla por frame hacia ese objetivo, respetando
+//      colisiones y límites, y se detiene cuando la pieza lo alcanza.
+//
+// La cámara está espejada en el visor. Las coordenadas de este módulo son las
+// de la cámara; sketch.js invierte el eje X al consumir el evento.
 //
 // EVENTOS EMITIDOS:
-// - "mover:columna"  { columna (0-15), timestamp }  (modo JUEGO)
-// - "menu:izquierda" { timestamp }  (modo MENU)
-// - "menu:derecha"   { timestamp }  (modo MENU)
-// - "caida:inicio"   { timestamp }  (dos manos simultáneamente)
-// - "caida:fin"      { timestamp }  (con retardo de 150ms)
+// - "mover:columna"  { columna, x, absoluta: true, timestamp }  (modo JUEGO)
+//     x:       posición normalizada 0-1 de la mano en coordenadas de cámara.
+//              Es la referencia principal: sketch.js la mapea al ancho real
+//              de la cuadrícula y a la huella de la pieza.
+//     columna: columna entera equivalente (0-15), por compatibilidad.
+// - "menu:izquierda" / "menu:derecha" { timestamp }  (modo MENU)
 //
 // EJEMPLO:
 // document.addEventListener('mover:columna', (e) => {
-//   console.log('Mover a columna:', e.detail.columna);
+//   console.log('Mano normalizada:', e.detail.x);
 // });
 
-function updateMovementControl() {
+// Olvida la última X usada para calcular el objetivo. El próximo frame con
+// mano abierta vuelve a calcular la columna absoluta.
+function resetMovementTracking(state) {
+  state.movement.lastTargetRawX = null;
+}
+
+// Devuelve la mano que está haciendo el gesto de mano abierta, reutilizando
+// el reconocimiento de gestos existente.
+function findOpenControlHand(state) {
+  const gesture = state.gestures.current;
+
+  if (!gesture || gesture.indexOf('MANO_ABIERTA') !== 0) {
+    return null;
+  }
+
+  const owner = state.gestures.owner;
+  if (!owner) {
+    return null;
+  }
+
+  return (
+    state.detection.hands.find(
+      (hand) => hand.side.toLowerCase() === owner
+    ) || null
+  );
+}
+
+function updateMovementControl(state) {
   if (!CONFIG.MOVEMENT_CONTROL_ENABLED) {
     return;
   }
 
   const now = Date.now();
   const numColumns = CONFIG.MOVEMENT_COLUMNS;
-  const edgeMargin = CONFIG.MOVEMENT_EDGE_MARGIN;
-  const hysteresis = CONFIG.MOVEMENT_HYSTERESIS;
 
-  // Detectar si hay dos manos (caída rápida)
-  const dosManos = state.detection.hands.length === 2;
-
-  // Manejo de CAÍDA RÁPIDA (DOS MANOS)
-  if (dosManos && !state.ui.dosManosCaida) {
-    // Inicio de caída rápida
-    state.ui.dosManosCaida = true;
-    state.movement.doubleHandTime = now;
-    state.movement.pausedByDoubleHand = true;
-    HandPose.emitEvent('caida:inicio', { timestamp: now });
-    if (CONFIG.DEBUG) {
-      console.log('⬇️ CAÍDA RÁPIDA: iniciada');
+  // Dos manos: se pausa el movimiento horizontal. La caída acelerada tiene
+  // un único gesto (victoria); con dos manos no se acelera nada.
+  if (CONFIG.MOVEMENT_PAUSE_ON_DOUBLE_HAND && state.detection.hands.length === 2) {
+    if (!state.movement.pausedByDoubleHand) {
+      state.movement.pausedByDoubleHand = true;
+      state.movement.doubleHandTime = now;
     }
-  } else if (!dosManos && state.ui.dosManosCaida) {
-    // Fin de caída rápida (con retardo)
-    const timeSinceDoubleHand = now - state.movement.doubleHandTime;
-    if (timeSinceDoubleHand > CONFIG.MOVEMENT_DOUBLE_HAND_TIMEOUT) {
-      state.ui.dosManosCaida = false;
-      state.movement.pausedByDoubleHand = false;
-      HandPose.emitEvent('caida:fin', { timestamp: now });
-      if (CONFIG.DEBUG) {
-        console.log('⬆️ CAÍDA RÁPIDA: terminada');
-      }
-    }
-  }
-
-  // Si movimiento está pausado por caída rápida, no procesar
-  if (state.movement.pausedByDoubleHand) {
+    state.movement.controlHand = null;
+    resetMovementTracking(state);
     return;
   }
 
-  // Buscar mano con MANO_ABIERTA o movimiento horizontal
-  const controlHand = state.detection.hands.find(
-    (hand) =>
-      state.gestures.current &&
-      (state.gestures.current.includes('MANO_ABIERTA') ||
-        state.gestures.current.includes('MANO_ABIERTA_IZQUIERDA') ||
-        state.gestures.current.includes('MANO_ABIERTA_DERECHA')) &&
-      hand.side.toLowerCase() === state.gestures.owner
-  );
+  // Se mantiene la pausa un instante después de que se va la segunda mano
+  // para tolerar parpadeos del detector.
+  if (state.movement.pausedByDoubleHand) {
+    if (now - state.movement.doubleHandTime < CONFIG.MOVEMENT_DOUBLE_HAND_TIMEOUT) {
+      state.movement.controlHand = null;
+      resetMovementTracking(state);
+      return;
+    }
+    state.movement.pausedByDoubleHand = false;
+    state.movement.doubleHandTime = 0;
+  }
+
+  const controlHand = findOpenControlHand(state);
 
   if (!controlHand) {
-    // Sin mano de control, no hacer nada
+    // Sin mano abierta no hay objetivo: la pieza se queda quieta.
     state.movement.controlHand = null;
+    resetMovementTracking(state);
     return;
   }
 
-  state.movement.controlHand = controlHand.side;
+  const side = controlHand.side.toLowerCase();
+  if (state.movement.controlHand !== side) {
+    state.movement.controlHand = side;
+    resetMovementTracking(state);
+  }
 
-  // Calcular posición X normalizada (0-1)
   const palmX = controlHand.palmCenter[0];
+  const lastRawX = state.movement.lastTargetRawX;
 
-  // Aplicar zona útil: ignorar ~10% de cada borde
-  const usableStart = edgeMargin;
-  const usableEnd = 1 - edgeMargin;
-  const usableWidth = usableEnd - usableStart;
-
-  if (palmX < usableStart || palmX > usableEnd) {
-    // Fuera de zona útil, no emitir
+  // Filtro de temblor: no recalcular la columna por micro-movimientos del
+  // detector. Si la mano se mueve lento, la diferencia con la última X crece
+  // hasta superar el umbral y recién ahí se actualiza el objetivo.
+  if (lastRawX !== null && Math.abs(palmX - lastRawX) < CONFIG.MOVEMENT_JITTER_THRESHOLD) {
     return;
   }
 
-  // Mapear posición X a columna (0-15)
-  const normalizedX = (palmX - usableStart) / usableWidth;
-  const columnFloat = normalizedX * (numColumns - 1);
-  const columnWidth = 1 / (numColumns - 1);
+  state.movement.lastTargetRawX = palmX;
 
-  // Aplicar histéresis: solo cambiar si supera el margen
-  let newColumn = state.movement.currentColumn;
-  const hysteresisMargin = columnWidth * hysteresis;
+  // Posición de la palma -> ancho completo de la cuadrícula.
+  // El margen permite que el centro de la palma alcance las columnas 0 y 15
+  // aunque la mano tenga ancho; fuera del margen el objetivo satura.
+  const margin = Math.max(0, Math.min(0.45, CONFIG.MOVEMENT_EDGE_MARGIN));
+  const usableWidth = Math.max(0.1, 1 - 2 * margin);
+  const normalized = Math.min(1, Math.max(0, (palmX - margin) / usableWidth));
+  const target = Math.max(
+    0,
+    Math.min(numColumns - 1, Math.round(normalized * (numColumns - 1)))
+  );
 
-  if (columnFloat < state.movement.currentColumn - hysteresisMargin) {
-    newColumn = Math.floor(columnFloat);
-  } else if (columnFloat > state.movement.currentColumn + hysteresisMargin) {
-    newColumn = Math.ceil(columnFloat);
+  const previous = state.movement.targetColumn;
+  state.movement.targetColumn = target;
+  state.movement.currentColumn = target;
+
+  if (state.ui.mode === 'juego') {
+    HandPose.emitEvent('mover:columna', {
+      // x normalizada (0-1, coordenadas de cámara) es la referencia principal:
+      // sketch.js la mapea al ancho real de la cuadrícula y de la pieza.
+      x: normalized,
+      // columna entera equivalente, para compatibilidad con consumidores
+      // que ya usaban "columna".
+      columna: target,
+      absoluta: true,
+      timestamp: now,
+    });
+
+    if (CONFIG.DEBUG) {
+      console.log(
+        '➡️ MOVIMIENTO: columna objetivo ' + target +
+        ' (X normalizada: ' + normalized.toFixed(3) + ')'
+      );
+    }
+    return;
   }
 
-  newColumn = Math.max(0, Math.min(numColumns - 1, newColumn));
-  state.movement.currentColumn = newColumn;
+  if (state.ui.mode === 'menu' && target !== previous) {
+    // Coordenadas de cámara: +X equivale a la izquierda en el visor espejado.
+    HandPose.emitEvent(target > previous ? 'menu:izquierda' : 'menu:derecha', {
+      timestamp: now,
+    });
 
-  // Emitir evento solo si la columna cambió
-  if (state.movement.currentColumn !== state.movement.lastColumn) {
-    state.movement.lastColumn = state.movement.currentColumn;
-
-    if (state.ui.mode === 'juego') {
-      // Modo JUEGO: emitir mover:columna
-      HandPose.emitEvent('mover:columna', {
-        columna: state.movement.currentColumn,
-        timestamp: now,
-      });
-      if (CONFIG.DEBUG) {
-        console.log(
-          '➡️ MOVIMIENTO: columna ' + state.movement.currentColumn + ' (X: ' +
-          palmX.toFixed(3) + ')'
-        );
-      }
-    } else if (state.ui.mode === 'menu') {
-      // Modo MENÚ: emitir menu:izquierda o menu:derecha
-      if (state.movement.currentColumn < state.movement.lastColumn - 1) {
-        HandPose.emitEvent('menu:izquierda', { timestamp: now });
-        if (CONFIG.DEBUG) {
-          console.log('⬅️ MENÚ: izquierda');
-        }
-      } else if (state.movement.currentColumn > state.movement.lastColumn + 1) {
-        HandPose.emitEvent('menu:derecha', { timestamp: now });
-        if (CONFIG.DEBUG) {
-          console.log('➡️ MENÚ: derecha');
-        }
-      }
+    if (CONFIG.DEBUG) {
+      console.log(target > previous ? '⬅️ MENÚ: izquierda' : '➡️ MENÚ: derecha');
     }
   }
 }
 
-function drawMovementDebug() {
+function drawMovementDebug(state, pInst) {
   if (!CONFIG.DEBUG || !state.camera.canvas) {
     return;
   }
 
   // Acceder a p5 para dibujar (si está disponible)
-  if (typeof window.p !== 'undefined') {
-    const p = window.p;
+  if (pInst) {
+    const p = pInst;
     const numColumns = CONFIG.MOVEMENT_COLUMNS;
     const edgeMargin = CONFIG.MOVEMENT_EDGE_MARGIN;
     const canvasWidth = state.camera.width;
@@ -1767,7 +1968,7 @@ HandPose._drawMovementDebug = drawMovementDebug;
 //
 // ACCIONES DISPONIBLES (para on() / off()):
 // 'moverIzquierda', 'moverDerecha', 'rotarHorario', 'rotarAntihorario',
-// 'pausar', 'caidaRapidaInicio', 'caidaRapidaFin', 'cursorMover',
+// 'pausar', 'caidaAceleradaInicio', 'caidaAceleradaFin', 'cursorMover',
 // 'cursorClick', 'menuIzquierda', 'menuDerecha'
 //
 // PROPIEDADES:
@@ -1779,8 +1980,8 @@ HandPose._drawMovementDebug = drawMovementDebug;
 // HandPose.on('moverIzquierda', () => {
 //   console.log('Mover pieza izquierda');
 // });
-// HandPose.on('caidaRapidaInicio', () => {
-//   console.log('Caída rápida activada');
+// HandPose.on('caidaAceleradaInicio', () => {
+//   console.log('Caída acelerada activada');
 // });
 
 const HandPoseIntegration = (() => {
@@ -1791,8 +1992,8 @@ const HandPoseIntegration = (() => {
     rotarHorario: [],
     rotarAntihorario: [],
     pausar: [],
-    caidaRapidaInicio: [],
-    caidaRapidaFin: [],
+    caidaAceleradaInicio: [],
+    caidaAceleradaFin: [],
     cursorMover: [],
     cursorClick: [],
     menuIzquierda: [],
@@ -1803,25 +2004,46 @@ const HandPoseIntegration = (() => {
   let isEnabled = true;
   let lastCursorX = 0;
   let lastCursorY = 0;
+  let lastMovementColumn = null;
 
   // Mapeo de eventos internos a acciones públicas
   function setupEventListeners() {
     // MOVER COLUMNAS (modo JUEGO)
     document.addEventListener('mover:columna', (e) => {
-      if (!isEnabled) return;
-      
-      const columna = e.detail.columna;
-      const numColumns = CONFIG.MOVEMENT_COLUMNS;
+      if (!isEnabled || !e.detail) return;
 
-      // Comparar con columna anterior para determinar dirección
-      const midpoint = Math.floor(numColumns / 2);
+      // Evento de sincronización: fija la referencia sin mover la pieza.
+      if (e.detail.baseline) {
+        if (typeof e.detail.columna === 'number') {
+          lastMovementColumn = e.detail.columna;
+        }
+        return;
+      }
 
-      if (columna < midpoint) {
-        // Izquierda
-        emit('moverIzquierda', { columna });
-      } else if (columna > midpoint) {
-        // Derecha
-        emit('moverDerecha', { columna });
+      let steps = typeof e.detail.delta === 'number' ? e.detail.delta : 0;
+
+      // Compatibilidad con emisores antiguos que solo enviaban "columna".
+      if (steps === 0 && typeof e.detail.columna === 'number') {
+        if (lastMovementColumn === null) {
+          lastMovementColumn = e.detail.columna;
+          return;
+        }
+        steps = e.detail.columna - lastMovementColumn;
+        lastMovementColumn = e.detail.columna;
+      }
+
+      if (steps === 0) return;
+
+      // El visor de cámara está espejado: un delta positivo en coordenadas
+      // de cámara equivale a mover la mano hacia la izquierda en pantalla.
+      const action = steps > 0 ? 'moverIzquierda' : 'moverDerecha';
+      const amount = Math.min(
+        Math.abs(steps),
+        Math.max(1, CONFIG.MOVEMENT_MAX_STEPS_PER_EVENT)
+      );
+
+      for (let i = 0; i < amount; i++) {
+        emit(action, { steps: amount });
       }
     });
 
@@ -1836,15 +2058,15 @@ const HandPoseIntegration = (() => {
       emit('menuDerecha', {});
     });
 
-    // CAÍDA RÁPIDA
-    document.addEventListener('caida:inicio', (e) => {
+    // VICTORIA: único gesto de caída acelerada.
+    document.addEventListener('victoria:inicio', (e) => {
       if (!isEnabled) return;
-      emit('caidaRapidaInicio', {});
+      emit('caidaAceleradaInicio', {});
     });
 
-    document.addEventListener('caida:fin', (e) => {
+    document.addEventListener('victoria:fin', (e) => {
       if (!isEnabled) return;
-      emit('caidaRapidaFin', {});
+      emit('caidaAceleradaFin', {});
     });
 
     // CURSOR: MOVER
