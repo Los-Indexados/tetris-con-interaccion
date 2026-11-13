@@ -171,7 +171,13 @@
     actions.appendChild(actionButton('Seleccionar escenario', 'scenarios', 'ghost', 'open-scenarios'));
     inner.appendChild(actions);
 
-    inner.appendChild(el('p', 'tui-start__hint', 'Control por gestos · próximamente'));
+    var hints = el('div', 'tui-start__hints');
+    hints.appendChild(el('p', 'tui-start__hint', '👐 Mano abierta para desplazarse'));
+    hints.appendChild(el('p', 'tui-start__hint', '✌️ Victory sign para acelerar'));
+    hints.appendChild(el('p', 'tui-start__hint', '🤘 Rock para cambiar fondo'));
+    hints.appendChild(el('p', 'tui-start__hint', '👐👐 Dos manos para comenzar'));
+    hints.appendChild(el('p', 'tui-start__hint', '🖐️ Sin manos = pausa'));
+    inner.appendChild(hints);
 
     section.appendChild(inner);
     return section;

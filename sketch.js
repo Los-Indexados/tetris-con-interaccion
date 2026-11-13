@@ -9,19 +9,13 @@
  * Acá NO hay reglas de juego: solo se traducen eventos de la interfaz a
  * llamadas del motor y se dibuja el estado que el motor expone.
  *
- * Mapa de controles (los ids vienen de la interfaz):
- *   control-left  -> moverIzquierda      control-right -> moverDerecha
- *   control-down  -> bajarRapido
- *   control-up    -> sin función por ahora (la interfaz igual emite el evento)
- *   control-a     -> rotar (derecha)      control-b     -> rotarIzquierda
- *
- * handpose.js se consume así:
- *   mover:columna (x absoluta) -> columna objetivo; una celda por frame
- *   pausar (puño, por transición) -> pausa; PULGAR_ARRIBA -> reanudar
- *   rotarHorario/Antihorario -> rotación con pulgar en partida
- *   caidaAceleradaInicio/Fin (victoria) -> único gesto de caída acelerada
- *   cursorMover/Click (solo menús/pausa/over) -> TetrisUI.moveCursor / clickAt
- *   El modo menu/juego se cambia solo al navegar; debug con ?debug en la URL.
+ * Mapa de gestos (handpose.js):
+ *   mano abierta -> mover:columna (x absoluta, 0-1) -> columna objetivo
+ *   victoria (✌️) -> victoria:inicio/fin -> caída acelerada continua
+ *   dos manos -> dos:manos -> iniciar/reiniciar partida
+ *   rock (🤘) -> gesto:confirmado {gesto: 'ROCK'} -> ciclar fondos
+ *   sin manos -> mano:perdida -> pausa automática
+ *   mano reaparece -> mano:detectada -> reanudar desde pausa
  *
  * Los bloques se dibujan en el canvas que vive dentro de [data-tui-board].
  * La grilla del tablero es 16 x 16 y el contenedor es cuadrado (CSS).
