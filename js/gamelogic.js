@@ -555,6 +555,7 @@ const VOLUMEN_EFECTOS = 0.7;
 let sonidoMusica = null;
 let sonidoLinea = null;
 let sonidoGameOver = null;
+let audioDesbloqueado = false;
 
 /**
  * Crea un reproductor si el navegador expone Audio. El volumen y el loop se
@@ -579,6 +580,76 @@ function cargarAudios() {
   sonidoMusica = crearAudio(ARCHIVOS_AUDIO.musica, VOLUMEN_MUSICA, true);
   sonidoLinea = crearAudio(ARCHIVOS_AUDIO.linea, VOLUMEN_EFECTOS, false);
   sonidoGameOver = crearAudio(ARCHIVOS_AUDIO.gameOver, VOLUMEN_EFECTOS, false);
+
+  instalarDesbloqueoAudio();
+}
+
+/**
+ * Los navegadores bloquean la reproducción automática: el audio no puede
+ * arrancar hasta que el usuario interactúe con la página. En el primer clic,
+ * tecla o toque se reproducen los tres audios a volumen 0 y se pausan; desde
+ * ese momento los reproductores quedan habilitados.
+ */
+function desbloquearAudio() {
+  if (audioDesbloqueado) return;
+  if (!sonidoMusica && !sonidoLinea && !sonidoGameOver) return;
+
+  audioDesbloqueado = true;
+
+  if (sonidoMusica) {
+    const volumen = sonidoMusica.volume;
+    sonidoMusica.volume = 0;
+
+    const intento = sonidoMusica.play();
+    const terminar = () => {
+      sonidoMusica.volume = volumen;
+      // Si la partida no está activa, se corta en el acto.
+      if (!musicaPermitida()) {
+        sonidoMusica.pause();
+        sonidoMusica.currentTime = 0;
+      }
+    };
+
+    if (intento && typeof intento.then === 'function') {
+      intento.then(terminar).catch(() => {
+        sonidoMusica.volume = volumen;
+        audioDesbloqueado = false;
+      });
+    } else {
+      terminar();
+    }
+  }
+
+  // Los efectos usan elementos distintos: también hay que habilitarlos.
+  [sonidoLinea, sonidoGameOver].forEach((audio) => {
+    if (!audio) return;
+
+    const volumen = audio.volume;
+    audio.volume = 0;
+
+    const intento = audio.play();
+    const terminar = () => {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = volumen;
+    };
+
+    if (intento && typeof intento.then === 'function') {
+      intento.then(terminar).catch(() => { audio.volume = volumen; });
+    } else {
+      terminar();
+    }
+  });
+}
+
+/** Escucha el primer gesto real del usuario para habilitar el audio. */
+function instalarDesbloqueoAudio() {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+
+  const eventos = ['pointerdown', 'keydown', 'touchstart'];
+  eventos.forEach((evento) => {
+    window.addEventListener(evento, desbloquearAudio, { passive: true });
+  });
 }
 
 /** Intenta reproducir sin romper nada si el navegador bloquea el autoplay. */
@@ -590,8 +661,8 @@ function reproducir(audio) {
 }
 
 /**
- * Se llama al iniciar o reanudar la partida. No hay contexto de audio que
- * desbloquear: cada intento de reproducción se resuelve solo.
+ * Se llama al iniciar o reanudar la partida. Si el audio todavía no fue
+ * habilitado por un gesto del usuario, el intento se ignora en silencio.
  */
 function iniciarAudio() {
   intentarMusica();
@@ -614,12 +685,11 @@ function intentarMusica() {
   reproducir(sonidoMusica);
 }
 
-/** Corta la música (por ejemplo, al perder la partida). */
+/** Pausa la música (pausa o game over). Se reanuda desde el mismo punto. */
 function detenerMusica() {
   if (!sonidoMusica || sonidoMusica.paused) return;
 
   sonidoMusica.pause();
-  sonidoMusica.currentTime = 0;
 }
 
 /** Vuelve a arrancar la música y corta el efecto de game over (al reiniciar). */

@@ -223,6 +223,12 @@ const HandPose = (() => {
       initHandDetection();
     }, 500);
 
+    // Aprovechar la interacción del permiso de cámara para intentar habilitar
+    // el audio (algunos navegadores lo permiten; si no, queda el clic/toque).
+    if (typeof desbloquearAudio === 'function') {
+      desbloquearAudio();
+    }
+
     // Emitir evento de cámara lista
     if (callbacks.onCameraActive) {
       callbacks.onCameraActive({

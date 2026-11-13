@@ -32,12 +32,13 @@ Debe crearse o reanudarse después de un gesto del usuario en la página.
 
 **Causa:** Política de seguridad de navegadores modernos (evita auto-play de audio)
 
-**Solución:** ✅ **NORMAL Y ESPERADO**
-- El audio nativo puede quedar bloqueado hasta que el navegador lo permita
-- El juego sigue funcionando en silencio, sin errores en consola
+**Solución:** ✅ **YA IMPLEMENTADA**
+- El primer clic, toque o tecla habilita los reproductores (se reproducen a volumen 0 y se pausan)
+- Si el navegador lo permite, el permiso de cámara también los habilita
+- Si nunca interactuás con la página, el navegador puede bloquear el audio
 - La música se reintenta al iniciar o reanudar la partida
 
-**Acción requerida:** Ninguna.
+**Acción requerida:** Si no escuchás nada, hacé un clic en la página una vez.
 
 ---
 

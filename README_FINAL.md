@@ -217,7 +217,7 @@ The kernel 'XXX' for backend 'webgl' is already registered
 ```
 Se ha impedido que un AudioContext se inicie automáticamente...
 ```
-✅ **Ya no aplica** - No se crea ningún AudioContext. La reproducción nativa puede quedar bloqueada por el navegador y el juego sigue en silencio.
+✅ **Ya no aplica** - No se crea ningún AudioContext. El audio nativo se habilita con el primer clic, toque o tecla; el permiso de cámara también puede habilitarlo.
 
 Ver `TROUBLESHOOTING.md` para más detalles.
 
