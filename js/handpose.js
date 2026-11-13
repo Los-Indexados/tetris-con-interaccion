@@ -16,8 +16,8 @@ const CONFIG = {
   EMA_ALPHA: 0.5, // Factor de suavizado (0-1, más alto = menos suavizado)
   
   // Parámetros One Euro
-  ONE_EURO_MIN_CUTOFF: 0.7, // Frecuencia de corte mínima (Hz) - más bajo = más fluido
-  ONE_EURO_BETA: 0.05, // Parámetro de amortiguación de derivada - más alto = más rápido
+  ONE_EURO_MIN_CUTOFF: 4.0, // Frecuencia de corte mínima (Hz) - más alto = menos retardo
+  ONE_EURO_BETA: 0.3, // Parámetro de amortiguación de derivada - más alto = más rápido
   
   // Zona muerta (deadzone)
   DEADZONE_THRESHOLD: 0.002, // Umbral de variación mínima (normalizado 0-1) - más bajo = más sensible
@@ -28,10 +28,6 @@ const CONFIG = {
   // Configuración de gestos
   GESTURE_CONFIDENCE_MIN: 0.7, // Confianza mínima para detectar gesto
   GESTURE_ENABLED: true, // Activar/desactivar detección de gestos
-  
-  // Prioridad entre manos
-  HAND_OWNERSHIP_ENABLED: true, // Activar regla de prioridad
-  HAND_OWNERSHIP_TIMEOUT_MS: 200, // Retardo para traspaso de dueña
   
   // Umbrales para detección de dedos extendidos
   FINGER_EXTENDED_THRESHOLD: 0.05, // Distancia mínima entre punta y articulación media
@@ -58,7 +54,7 @@ const CONFIG = {
   PAUSE_GESTURE_COOLDOWN_MS: 500, // Evita dobles toggles por parpadeo del detector
 
   // Gestos instantáneos (sin hold, solo cooldown corto)
-  GESTURES_INSTANT: ['ROCK'],
+  GESTURES_INSTANT: ['ROCK', 'PULGAR_ARRIBA'],
 
   // Gestos continuos (sin hold, se activan mientras duren)
   GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'VICTORIA'],
@@ -72,8 +68,6 @@ const CONFIG = {
   MOVEMENT_JITTER_THRESHOLD: 0.01, // Movimiento mínimo para recalcular el objetivo (~6 px a 640)
   MOVEMENT_MAX_STEPS_PER_EVENT: 4, // Tope para consumidores que usan deltas (compatibilidad)
   MOVEMENT_MODE_INITIAL: 'menu', // Modo inicial: 'menu' o 'juego'
-  MOVEMENT_PAUSE_ON_DOUBLE_HAND: true, // Pausar el movimiento horizontal cuando hay 2 manos
-  MOVEMENT_DOUBLE_HAND_TIMEOUT: 150, // Retardo en ms antes de reanudar el movimiento
 };
 
 // ============================================================================
@@ -103,7 +97,7 @@ const HandPose = (() => {
       lastFpsTime: Date.now(),
       maxHands: 2,
       trackedHandIds: [], // IDs de las manos siendo rastreadas
-      lastHandCount: 0, // Último conteo de manos
+      handOrder: [], // Lados ('left'/'right') en orden de aparición: 1ª y 2ª mano
     },
     hands: [],
     gestures: {
@@ -120,7 +114,8 @@ const HandPose = (() => {
       progress: 0, // 0-1
       confirmed: false, // Si ya se confirmó
       lastDetectedTime: 0, // Última vez que se detectó el gesto (tolerancia)
-      cooldownUntil: 0, // Cooldown hasta este timestamp
+      cooldownUntil: 0, // Cooldown hasta este timestamp (gestos con hold)
+      instantCooldowns: Object.create(null), // Cooldown independiente por gesto instantáneo
     },
     ui: {
       mode: CONFIG.MOVEMENT_MODE_INITIAL, // 'menu' o 'juego'
@@ -132,8 +127,6 @@ const HandPose = (() => {
     movement: {
       currentColumn: Math.floor(CONFIG.MOVEMENT_COLUMNS / 2), // Último objetivo (0-15), para debug/estado
       controlHand: null, // Mano que controla el movimiento
-      doubleHandTime: 0, // Timestamp cuando se detectaron dos manos
-      pausedByDoubleHand: false, // Si está pausado por caída rápida
       targetColumn: Math.floor(CONFIG.MOVEMENT_COLUMNS / 2), // Objetivo absoluto en coordenadas de cámara
       lastTargetRawX: null, // Última X cruda usada para recalcular el objetivo
     },
@@ -360,7 +353,7 @@ const HandPose = (() => {
     if (!handsList || handsList.length === 0) {
       state.detection.hands = [];
       state.hands = [];
-      state.detection.lastHandCount = 0;
+      state.detection.handOrder = [];
 
       // Sin manos no hay gesto vigente: se limpia para que la UI reciba
       // "gesto:perdido" y "mano:perdida" correctamente.
@@ -389,8 +382,6 @@ const HandPose = (() => {
     if (CONFIG.DEBUG && detectedHands.length > 1) {
       console.log('✅ Manos a procesar: ' + detectedHands.length);
     }
-
-    state.detection.lastHandCount = detectedHands.length;
 
     // Procesar cada mano detectada
     const processedHands = detectedHands.map((hand) => {
@@ -429,6 +420,10 @@ const HandPose = (() => {
 
     // Manejar desaparición de manos
     handleHandDisappearance(currentTime);
+
+    // Fijar el orden de aparición ANTES de detectar gestos: la primera mano
+    // detectada es la que tiene prioridad para controlar.
+    updateHandOrder(smoothedHands);
 
     // Detectar gestos
     detectAllGestures(smoothedHands, currentTime);
@@ -477,6 +472,45 @@ const HandPose = (() => {
       state.detection.frameCount = 0;
       state.detection.lastFpsTime = now;
     }
+  }
+
+  // =========================================================================
+  // SECCIÓN: IDENTIDAD DE LAS MANOS
+  // =========================================================================
+  // "Primera mano" y "segunda mano" son las manos en el orden en que
+  // aparecieron, no el lado que informa el modelo. Así la partida conserva una
+  // mano de control estable aunque el detector intercambie izquierda/derecha,
+  // y al desaparecer la primera la segunda pasa a ser la principal.
+  //
+  // Orden resultante: state.detection.handOrder = ['right', 'left'] (ejemplo)
+  // Ordinal de cada mano: índice + 1.
+
+  function updateHandOrder(hands) {
+    const presentes = (hands || []).map((hand) => hand.side.toLowerCase());
+
+    // Conservar las manos que siguen presentes, sin alterar su orden.
+    const orden = state.detection.handOrder.filter((side) => presentes.includes(side));
+
+    // Agregar las nuevas al final, en el orden en que llegaron.
+    presentes.forEach((side) => {
+      if (!orden.includes(side)) orden.push(side);
+    });
+
+    state.detection.handOrder = orden;
+  }
+
+  function handOrdinal(side) {
+    if (!side) return 0;
+    return state.detection.handOrder.indexOf(String(side).toLowerCase()) + 1;
+  }
+
+  // Devuelve las manos ordenadas por aparición: la primera es la principal.
+  function handsByDetectionOrder(hands) {
+    return hands.slice().sort((a, b) => {
+      const ordenA = handOrdinal(a.side) || 99;
+      const ordenB = handOrdinal(b.side) || 99;
+      return ordenA - ordenB;
+    });
   }
 
   // =========================================================================
@@ -704,28 +738,26 @@ const HandPose = (() => {
   // =========================================================================
   // SECCIÓN: GESTOS
   // =========================================================================
-  // Detecta gestos a partir de puntos suavizados de las manos.
-  // Implementa regla de prioridad: primera mano que aparece es dueña.
-
-  // Estado de propiedad de gestos por mano
-  const gestureOwnership = {
-    left: {
-      owner: null, // null, 'left', o 'right'
-      startTime: 0,
-      lastGesture: null,
-    },
-    right: {
-      owner: null,
-      startTime: 0,
-      lastGesture: null,
-    },
-  };
-
   // Historial de posiciones de manos para detectar movimiento
   const handPositionHistory = {
     left: { lastPalmX: null, moving: false, direction: null },
     right: { lastPalmX: null, moving: false, direction: null },
   };
+
+  // Detectar si un dedo está claramente doblado. Se compara la distancia
+  // MCP→punta con MCP→PIP: en un dedo extendido la punta queda más lejos que
+  // la articulación media; en uno doblado, la punta se acerca a la palma.
+  // Es invariante a la rotación de la mano (no depende de X/Y absolutas).
+  function isFingerCurled(hand, fingerIndices) {
+    // fingerIndices: [punta, articulación media (PIP), nudillo (MCP)]
+    const tipPoint = hand.landmarks[fingerIndices[0]];
+    const pipPoint = hand.landmarks[fingerIndices[1]];
+    const mcpPoint = hand.landmarks[fingerIndices[2]];
+
+    if (!tipPoint || !pipPoint || !mcpPoint) return false;
+
+    return distance(mcpPoint, tipPoint) < distance(mcpPoint, pipPoint);
+  }
 
   // Detectar si un dedo está extendido comparando punta con articulación media
   function isFingerExtended(hand, fingerIndices) {
@@ -778,37 +810,21 @@ const HandPose = (() => {
     return !nearFinger;
   }
 
-
-
-  // Contar dedos extendidos (0-5)
-  function countExtendedFingers(hand) {
-    let count = 0;
-
-    // Pulgar (índices 2-4)
-    if (isThumbExtended(hand)) count++;
-
-    // Índice (índices 6-8)
-    if (isIndexExtended(hand)) count++;
-
-    // Medio (índices 10-12)
-    if (isFingerExtended(hand, [12, 10])) count++;
-
-    // Anular (índices 14-16)
-    if (isFingerExtended(hand, [16, 14])) count++;
-
-    // Meñique (índices 18-20)
-    if (isFingerExtended(hand, [20, 18])) count++;
-
-    return count;
-  }
-
   // Detectar gesto de una mano
   function detectGesture(hand, side) {
-    const extendedCount = countExtendedFingers(hand);
+    // Primero se decide qué dedos están realmente doblados. La prueba radial
+    // (nudillo→punta vs nudillo→PIP) es la autoridad: el umbral punta-PIP
+    // confunde dedos doblados cuya punta queda cerca de la palma, y eso hacía
+    // que un pulgar arriba se clasificara como VICTORIA.
+    const indexCurled = isFingerCurled(hand, [8, 6, 5]);
+    const middleCurled = isFingerCurled(hand, [12, 10, 9]);
+    const ringCurled = isFingerCurled(hand, [16, 14, 13]);
+    const pinkyCurled = isFingerCurled(hand, [20, 18, 17]);
 
-    // MANO_ABIERTA (5 dedos)
-    if (extendedCount === 5) {
-      return 'MANO_ABIERTA';
+    // PUÑO vs PULGAR_ARRIBA: los cuatro dedos largos doblados. Si el pulgar
+    // está claramente levantado gana el pulgar; si está envuelto, gana el puño.
+    if (indexCurled && middleCurled && ringCurled && pinkyCurled) {
+      return isThumbUp(hand) ? 'PULGAR_ARRIBA' : 'PUÑO';
     }
 
     const indexUp = isIndexExtended(hand);
@@ -816,23 +832,22 @@ const HandPose = (() => {
     const ringUp = isFingerExtended(hand, [16, 14]);
     const pinkyUp = isFingerExtended(hand, [20, 18]);
 
-    // PUÑO vs PULGAR_ARRIBA: los cuatro dedos están doblados. Si el pulgar
-    // está claramente levantado gana el pulgar; si está envuelto en el puño,
-    // gana la pausa (prioridad de pausa).
-    if (!indexUp && !middleUp && !ringUp && !pinkyUp) {
-      return isThumbUp(hand) ? 'PULGAR_ARRIBA' : 'PUÑO';
-    }
-
-    // VICTORIA (índice y medio extendidos; anular y meñique doblados).
-    // El pulgar se ignora a propósito: puede estar en cualquier posición.
-    if (indexUp && middleUp && !ringUp && !pinkyUp) {
+    // VICTORIA: índice y medio extendidos (no doblados); anular y meñique
+    // doblados. El pulgar se ignora a propósito.
+    if (indexUp && middleUp && !indexCurled && !middleCurled && ringCurled && pinkyCurled) {
       return 'VICTORIA';
     }
 
-    // ROCK (índice, meñique y pulgar levantados; medio y anular doblados)
+    // ROCK: índice y meñique extendidos, medio y anular doblados, pulgar afuera.
     const thumbUp = isThumbExtended(hand);
-    if (indexUp && thumbUp && !middleUp && !ringUp && pinkyUp) {
+    if (indexUp && thumbUp && pinkyUp && middleCurled && ringCurled) {
       return 'ROCK';
+    }
+
+    // MANO_ABIERTA: los cuatro dedos largos extendidos. El pulgar no se exige
+    // porque suele quedar fuera de cuadro o pegado a la palma.
+    if (indexUp && middleUp && ringUp && pinkyUp) {
+      return 'MANO_ABIERTA';
     }
 
     return null; // Gesto no reconocido
@@ -876,105 +891,39 @@ const HandPose = (() => {
     return history.direction;
   }
 
-  // Aplicar regla de prioridad: primera mano que aparece es dueña
-  function applyHandOwnershipRule(hands, currentTime) {
-    if (!CONFIG.HAND_OWNERSHIP_ENABLED) {
-      return hands; // Sin regla de prioridad
-    }
-
-    // Identificar qué manos están presentes
-    const presentSides = hands.map((h) => h.side.toLowerCase());
-
-    // Si es la primera vez que vemos estas manos, marcar aparición
-    presentSides.forEach((side) => {
-      if (!gestureOwnership[side].owner) {
-        gestureOwnership[side].owner = side; // La mano es dueña de sí misma al aparecer
-        gestureOwnership[side].startTime = currentTime;
-      }
-    });
-
-    // Manos que desaparecieron: limpiar ownership
-    Object.keys(gestureOwnership).forEach((side) => {
-      if (!presentSides.includes(side)) {
-        gestureOwnership[side].owner = null;
-        gestureOwnership[side].startTime = 0;
-      }
-    });
-
-    return hands;
-  }
-
   // Detectar gestos en todas las manos
   function detectAllGestures(hands, currentTime) {
     if (!CONFIG.GESTURE_ENABLED || !hands || hands.length === 0) {
       state.gestures.current = null;
-      state.gestures.pointer = false;
-      state.gestures.pointerHand = null;
-      state.gestures.pinching = false;
+      state.gestures.owner = null;
+      state.gestures.ignored = null;
+      state.gestures.lastUpdate = currentTime;
       return;
     }
 
-    // Aplicar regla de prioridad
-    applyHandOwnershipRule(hands, currentTime);
-
-    let detectedGesture = null;
-    let gestureOwner = null;
-    let ignoredHand = null;
-    let punoOwner = null;
-
-    hands.forEach((hand) => {
-      const side = hand.side.toLowerCase();
-      const gesture = detectGesture(hand, side);
-      const movement = detectHandMovement(hand, side);
-
-      // Gesto detectado
-      if (gesture) {
-        // Verificar regla de prioridad
-        if (gestureOwnership[side].owner !== side) {
-          // Esta mano no es dueña, ignorar
-          ignoredHand = side;
-          return;
-        }
-
-        detectedGesture = gesture;
-        gestureOwner = side;
-
-        // Prioridad de pausa: si cualquier mano hace un puño, ese gesto gana
-        // sobre el resto (por ejemplo, una mano abierta con la otra en puño).
-        if (gesture === 'PUÑO') {
-          punoOwner = side;
-        }
-
-        // Si hay movimiento con mano abierta, agregar dirección
-        if (gesture === 'MANO_ABIERTA' && movement) {
-          detectedGesture = 'MANO_ABIERTA_' + movement;
-        }
-      }
-
-      // Movimiento sin gesto específico
-      if (movement && gesture === 'MANO_ABIERTA') {
-        if (!detectedGesture) {
-          detectedGesture = 'MANO_ABIERTA_' + movement;
-          gestureOwner = side;
-        }
-      }
+    // Orden de aparición: la mano principal primero.
+    const manos = handsByDetectionOrder(hands).map((hand) => {
+      const lado = hand.side.toLowerCase();
+      return {
+        lado,
+        gesto: detectGesture(hand, lado),
+        movimiento: detectHandMovement(hand, lado),
+      };
     });
 
-    // Actualizar estado de gestos
-    if (punoOwner) {
-      detectedGesture = 'PUÑO';
-      gestureOwner = punoOwner;
-    }
+    // Selección por prioridad (ver elegirGestoDetectado): los gestos discretos
+    // funcionan con cualquiera de las dos manos; el movimiento usa la principal.
+    const eleccion = elegirGestoDetectado(manos);
 
-    state.gestures.current = detectedGesture;
-    state.gestures.owner = gestureOwner;
-    state.gestures.ignored = ignoredHand;
+    state.gestures.current = eleccion.gesto;
+    state.gestures.owner = eleccion.owner;
+    state.gestures.ignored = eleccion.ignorada;
     state.gestures.lastUpdate = currentTime;
 
     // Log en DEBUG
-    if (CONFIG.DEBUG && detectedGesture) {
+    if (CONFIG.DEBUG && eleccion.gesto) {
       console.log(
-        '🎯 Gesto: ' + detectedGesture + ' (Dueña: ' + gestureOwner + ')'
+        '🎯 Gesto: ' + eleccion.gesto + ' (Dueña: ' + eleccion.owner + ')'
       );
     }
   }
@@ -1095,10 +1044,11 @@ const HandPose = (() => {
     if (CONFIG.GESTURES_WITH_HOLD.includes(gesture)) {
       startOrContinueHold(gesture, owner, currentTime);
     }
-    // Gestos instantáneos: confirmar de inmediato con cooldown corto
+    // Gestos instantáneos: confirmar de inmediato con cooldown propio de cada
+    // gesto. Así ROCK y PULGAR_ARRIBA no se bloquean entre sí.
     else if (CONFIG.GESTURES_INSTANT.includes(gesture)) {
-      // Verificar cooldown
-      if (currentTime >= state.hold.cooldownUntil) {
+      const cooldownHasta = state.hold.instantCooldowns[gesture] || 0;
+      if (currentTime >= cooldownHasta) {
         if (callbacks.onGestureConfirmed) {
           callbacks.onGestureConfirmed({
             gesture: gesture,
@@ -1112,7 +1062,7 @@ const HandPose = (() => {
           manoDuena: owner,
           timestamp: currentTime,
         });
-        state.hold.cooldownUntil = currentTime + 300; // Cooldown corto para instant
+        state.hold.instantCooldowns[gesture] = currentTime + 300;
         if (CONFIG.DEBUG) {
           console.log('⚡ Gesto instantáneo: ' + gesture);
         }
@@ -1276,21 +1226,6 @@ const HandPose = (() => {
       return CONFIG.DEBUG;
     },
 
-    // Registrar callbacks
-    on: function (event, callback) {
-      if (event === 'cameraError') {
-        callbacks.onCameraError = callback;
-      } else if (event === 'cameraActive') {
-        callbacks.onCameraActive = callback;
-      } else if (event === 'handsUpdate') {
-        callbacks.onHandsUpdate = callback;
-      } else if (event === 'gestureDetected') {
-        callbacks.onGestureDetected = callback;
-      } else if (event === 'gestureConfirmed') {
-        callbacks.onGestureConfirmed = callback;
-      }
-    },
-
     // Iniciar detección de manos
     start: function () {
       if (state.detection.model && state.detection.isModelReady) {
@@ -1379,6 +1314,8 @@ const HandPose = (() => {
       state.hold.confirmed = false;
       state.hold.gesture = null;
       state.hold.owner = null;
+      state.hold.cooldownUntil = 0;
+      state.hold.instantCooldowns = Object.create(null);
       
       state.ui.mode = isGameMode ? 'juego' : 'menu';
 
@@ -1386,8 +1323,6 @@ const HandPose = (() => {
       // vuelve a calcular la columna según la posición de la palma.
       resetMovementTracking(state);
       state.movement.controlHand = null;
-      state.movement.pausedByDoubleHand = false;
-      state.movement.doubleHandTime = 0;
 
       this.emitEvent('modo:cambiado', {
         modo: state.ui.mode,
@@ -1415,6 +1350,12 @@ const HandPose = (() => {
       },
       get cantidadManos() {
         return state.detection.hands.length;
+      },
+      get manoPrincipal() {
+        return state.detection.handOrder[0] || null;
+      },
+      get ordenManos() {
+        return state.detection.handOrder.slice();
       },
       get modo() {
         return state.ui.mode;
@@ -1445,7 +1386,6 @@ const HandPose = (() => {
         return {
           columnaActual: state.movement.currentColumn,
           manoControl: state.movement.controlHand,
-          pausado: state.movement.pausedByDoubleHand,
         };
       },
     },
@@ -1473,8 +1413,8 @@ const HandPose = (() => {
 // - "gesto:confirmado"        { gesto, manoDuena, timestamp }
 // - "gesto:perdido"           { gesto, timestamp }
 // - "gesto:ignorado"          { manoIgnorada, manoDuena, timestamp }
-// - "mano:detectada"          { cantidad, timestamp }
-// - "mano:perdida"            { timestamp }
+// - "mano:detectada"          { cantidad, lado, mano (1|2), primera, timestamp }
+// - "mano:perdida"            { cantidad, lado, timestamp }
 // - "cursor:mostrar"          { x, y, mano, timestamp }
 // - "cursor:ocultar"          { timestamp }
 // - "cursor:mover"            { x, y, timestamp }
@@ -1496,10 +1436,51 @@ const HandPose = (() => {
 // Estado anterior para detectar cambios
 const eventState = {
   lastGesture: null,
-  lastHandCount: 0,
+  lastHands: [],
   lastCursorVisible: false,
   lastPinching: false,
 };
+
+// =========================================================================
+// SECCIÓN: SELECCIÓN DEL GESTO ACTIVO
+// =========================================================================
+// Con dos manos visibles cada una puede estar haciendo un gesto distinto.
+// Reglas, en orden:
+//   1. Un gesto discreto (VICTORIA, ROCK, PULGAR_ARRIBA) gana sobre el
+//      movimiento, venga de la mano principal o de la secundaria.
+//   2. Si no hay gesto discreto, manda la primera mano abierta (la principal
+//      si está abierta) para el desplazamiento horizontal.
+//   3. Cualquier otro gesto (por ejemplo PUÑO) solo se reporta si es el único:
+//      un puño de descanso en la otra mano no debe bloquear el movimiento.
+const GESTOS_DISCRETOS = ['VICTORIA', 'ROCK', 'PULGAR_ARRIBA'];
+
+/**
+ * @param {{lado: string, gesto: string|null, movimiento: string|null}[]} manos
+ *        Manos en orden de aparición (la principal primero).
+ * @returns {{gesto: string|null, owner: string|null, ignorada: string|null}}
+ */
+function elegirGestoDetectado(manos) {
+  const conGesto = (manos || []).filter((mano) => mano.gesto);
+  if (conGesto.length === 0) return { gesto: null, owner: null, ignorada: null };
+
+  const elegida =
+    conGesto.find((mano) => GESTOS_DISCRETOS.indexOf(mano.gesto) !== -1) ||
+    conGesto.find((mano) => mano.gesto === 'MANO_ABIERTA') ||
+    conGesto[0];
+
+  let gesto = elegida.gesto;
+  if (gesto === 'MANO_ABIERTA' && elegida.movimiento) {
+    gesto = 'MANO_ABIERTA_' + elegida.movimiento;
+  }
+
+  const ignorada = conGesto.find((mano) => mano !== elegida) || null;
+
+  return {
+    gesto,
+    owner: elegida.lado,
+    ignorada: ignorada ? ignorada.lado : null,
+  };
+}
 
 function updateEventState(state) {
   const now = Date.now();
@@ -1582,32 +1563,39 @@ function updateEventState(state) {
   }
 
   // MANO DETECTADA / PERDIDA
-  if (state.detection.hands.length !== eventState.lastHandCount) {
-    if (state.detection.hands.length > eventState.lastHandCount) {
+  // "cantidad" es el total visible después del cambio. "lado" y "mano" (1 =
+  // primera detectada, 2 = segunda) identifican la mano que apareció o se fue.
+  const ladosActuales = state.detection.hands.map((hand) => hand.side.toLowerCase());
+
+  if (ladosActuales.length !== eventState.lastHands.length) {
+    const aparecidas = ladosActuales.filter((side) => !eventState.lastHands.includes(side));
+    const perdidas = eventState.lastHands.filter((side) => !ladosActuales.includes(side));
+
+    if (ladosActuales.length > eventState.lastHands.length) {
+      const lado = aparecidas[aparecidas.length - 1] || null;
+      // Ordinal de aparición calculado acá mismo: handOrdinal() vive dentro del
+      // IIFE de HandPose y updateEventState está fuera de ese ámbito.
+      const mano = lado ? state.detection.handOrder.indexOf(lado) + 1 : 0;
       HandPose.emitEvent('mano:detectada', {
-        cantidad: state.detection.hands.length,
+        cantidad: ladosActuales.length,
+        lado,
+        mano,
+        primera: mano === 1,
         timestamp: now,
       });
-    } else if (state.detection.hands.length < eventState.lastHandCount) {
+    } else if (ladosActuales.length < eventState.lastHands.length) {
+      const lado = perdidas[perdidas.length - 1] || null;
       HandPose.emitEvent('mano:perdida', {
+        cantidad: ladosActuales.length,
+        lado,
         timestamp: now,
       });
     }
-    eventState.lastHandCount = state.detection.hands.length;
   }
 
-  // DOS MANOS: iniciar o reiniciar partida
-  if (state.detection.hands.length === 2 && eventState.lastHandCount !== 2) {
-    HandPose.emitEvent('dos:manos', {
-      cantidad: 2,
-      timestamp: now,
-    });
-    if (CONFIG.DEBUG) {
-      console.log('👐 DOS MANOS: iniciar/reiniciar partida');
-    }
-  }
+  eventState.lastHands = ladosActuales;
 
-  // ROCK: cambio de fondo (gesto instantáneo confirmado por el sistema)
+  // ROCK: cambio de escenario (gesto instantáneo confirmado por el sistema)
   // Se emite automáticamente cuando el gesto es detectado y confirmado
   // por el mecanismo de gestos instantáneos en processGesturesWithHold
 
@@ -1681,30 +1669,9 @@ function updateMovementControl(state) {
   const now = Date.now();
   const numColumns = CONFIG.MOVEMENT_COLUMNS;
 
-  // Dos manos: se pausa el movimiento horizontal. La caída acelerada tiene
-  // un único gesto (victoria); con dos manos no se acelera nada.
-  if (CONFIG.MOVEMENT_PAUSE_ON_DOUBLE_HAND && state.detection.hands.length === 2) {
-    if (!state.movement.pausedByDoubleHand) {
-      state.movement.pausedByDoubleHand = true;
-      state.movement.doubleHandTime = now;
-    }
-    state.movement.controlHand = null;
-    resetMovementTracking(state);
-    return;
-  }
-
-  // Se mantiene la pausa un instante después de que se va la segunda mano
-  // para tolerar parpadeos del detector.
-  if (state.movement.pausedByDoubleHand) {
-    if (now - state.movement.doubleHandTime < CONFIG.MOVEMENT_DOUBLE_HAND_TIMEOUT) {
-      state.movement.controlHand = null;
-      resetMovementTracking(state);
-      return;
-    }
-    state.movement.pausedByDoubleHand = false;
-    state.movement.doubleHandTime = 0;
-  }
-
+  // Con una o dos manos el movimiento sigue funcionando: el gesto pertenece a
+  // la mano principal (la primera detectada) y findOpenControlHand la elige a
+  // ella, así la pieza no salta de una mano a otra.
   const controlHand = findOpenControlHand(state);
 
   if (!controlHand) {

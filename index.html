@@ -6,30 +6,11 @@
     <title>Tetris con Interacción</title>
     <link rel="stylesheet" href="style.css">
 
-    <!-- Suprimir error de AudioWorklet duplicado (p5.sound issue) -->
-    <script>
-      (function() {
-        const originalError = console.error;
-        console.error = function() {
-          const msg = Array.from(arguments).join(' ');
-          if (msg.includes('AudioWorkletGlobalScope.registerProcessor') && 
-              msg.includes('already registered')) {
-            return; // Suprimir este error específico
-          }
-          originalError.apply(console, arguments);
-        };
-      })();
-    </script>
-
     <!-- p5.js en modo global: habilita setup(), draw() y las constantes -->
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
-    <!-- p5.sound: loadSound(), loop(), play() y efectos -->
-    <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/addons/p5.sound.min.js"></script>
 
-    <!-- TensorFlow.js (backend de detección de manos) -->
+    <!-- TensorFlow.js (incluye los backends CPU y WebGL) -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
-    <!-- WebGL backend para TensorFlow.js (aceleración GPU) -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.11.0"></script>
     <!-- Modelo de detección de manos (Google MediaPipe) -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@2.0.0"></script>
 </head>

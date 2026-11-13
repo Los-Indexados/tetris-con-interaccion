@@ -14,16 +14,15 @@ Argument 1 is invalid: a class with the same name is already registered.
 
 **Causa:** p5.sound intenta registrar un AudioWorklet múltiples veces (caché del navegador)
 
-**Solución:** ✅ **YA IMPLEMENTADA**
-- El error está suprimido en `index.html` (línea 9-18)
-- No afecta la funcionalidad del audio
-- El juego funciona correctamente
+**Solución:** ✅ **RESUELTO**
+- Se quitó `p5.sound` del proyecto: el audio usa `HTMLAudioElement`
+- Sin AudioContext ni AudioWorklets, este error ya no aparece
 
-**Acción requerida:** Ninguna. Este error es ignorado automáticamente.
+**Acción requerida:** Ninguna.
 
 ---
 
-### ❌ **AudioContext: "Debe crearse o reanudarse después de un gesto del usuario"**
+### ❌ **Reproducción de audio bloqueada**
 
 **Síntoma:**
 ```
@@ -34,15 +33,15 @@ Debe crearse o reanudarse después de un gesto del usuario en la página.
 **Causa:** Política de seguridad de navegadores modernos (evita auto-play de audio)
 
 **Solución:** ✅ **NORMAL Y ESPERADO**
-- El audio se activa **automáticamente** después del primer gesto (mano abierta, rock, etc.)
-- No es un error, es una característica de seguridad
-- La música tema se inicia cuando entras a GAME por primera vez
+- El audio nativo puede quedar bloqueado hasta que el navegador lo permita
+- El juego sigue funcionando en silencio, sin errores en consola
+- La música se reintenta al iniciar o reanudar la partida
 
-**Acción requerida:** Ninguna. El audio funcionará después de cualquier gesto.
+**Acción requerida:** Ninguna.
 
 ---
 
-### ❌ **WebGL backend: "already registered"**
+### ✅ **WebGL backend: "already registered" (resuelto)**
 
 **Síntoma:**
 ```
@@ -53,12 +52,11 @@ The kernel 'Abs' for backend 'webgl' is already registered
 ... (cientos de kernels)
 ```
 
-**Causa:** TensorFlow.js carga múltiples veces (caché o reload)
+**Causa:** Se cargaba `@tensorflow/tfjs` y además `@tensorflow/tfjs-backend-webgl`; el paquete `tfjs` ya incluye ese backend.
 
-**Solución:** ✅ **IGNORAR - NO AFECTA**
-- TensorFlow reutiliza el backend existente automáticamente
-- La detección de manos funciona normalmente
-- Los kernels se comparten entre instancias
+**Solución:** ✅ **RESUELTO**
+- Se quitó el `<script>` duplicado de `tfjs-backend-webgl` de `index.html`
+- La detección de manos sigue usando el backend WebGL incluido en `tfjs`
 
 **Acción requerida:** Ninguna.
 

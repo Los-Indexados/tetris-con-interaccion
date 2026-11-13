@@ -8,9 +8,9 @@
  * Instancia viva: window.juego (la crea sketch.js en setup()).
  *
  *   juego.moverIzquierda()   juego.moverDerecha()   juego.bajarRapido()
- *   juego.rotar()            juego.rotarIzquierda() juego.alternarPausa()
- *   juego.reiniciar()        juego.actualizar(deltaMs)
- *   juego.calcularCaida()    juego.estaActivo()
+ *   juego.rotar()            juego.rotarIzquierda() juego.pausar()
+ *   juego.reanudar()         juego.alternarPausa()  juego.reiniciar()
+ *   juego.actualizar(deltaMs) juego.calcularCaida()  juego.estaActivo()
  *
  * Estado público: tablero.matriz, piezaActual, siguientePieza, puntaje,
  * lineas, nivel, pausado, gameOver.
@@ -343,11 +343,33 @@ class JuegoTetris {
     return false;
   }
 
+  /** Pausa la partida. No hace nada si ya terminó o ya estaba pausada. */
+  pausar() {
+    if (this.gameOver || this.pausado) return false;
+    this.pausado = true;
+    return true;
+  }
+
+  /**
+   * Reanuda la partida. El acumulador de gravedad vuelve a cero para que la
+   * primera pieza no caiga de golpe por el tiempo que estuvo pausada.
+   */
+  reanudar() {
+    if (this.gameOver || !this.pausado) return false;
+    this.pausado = false;
+    this.acumuladorGravedad = 0;
+    return true;
+  }
+
   /** Pausa o reanuda la partida. No hace nada si ya terminó. */
   alternarPausa() {
     if (this.gameOver) return false;
-    this.pausado = !this.pausado;
-    return this.pausado;
+    if (this.pausado) {
+      this.reanudar();
+      return false;
+    }
+    this.pausar();
+    return true;
   }
 
   /* ───────────────────────── LOOP DEL JUEGO ───────────────────────── */
@@ -474,12 +496,51 @@ class JuegoTetris {
     return new Pieza(this.bolsa.pop());
   }
 }
+
 /* ============================================================================
-   AUDIO  (p5.sound)
+   SECCIÓN 2 · FLUJO DE PANTALLAS SEGÚN LAS MANOS
+   ----------------------------------------------------------------------------
+   Traduce la cantidad de manos visibles a la única acción válida para la
+   pantalla actual. Es lógica pura (sin DOM ni cámara) para que el controlador
+   de sketch.js no repita las mismas condiciones en cada evento.
+   ==========================================================================*/
+
+/**
+ * Acción que corresponde a una pantalla y a una cantidad de manos detectadas.
+ *
+ *   ready  -> con dos manos arranca la partida.
+ *   game   -> solo se pausa cuando no queda ninguna mano.
+ *   paused -> con al menos una mano se reanuda.
+ *   over   -> con dos manos se reinicia.
+ *
+ * @param {'ready'|'game'|'paused'|'over'} pantalla
+ * @param {number} cantidadManos
+ * @returns {'iniciar'|'pausar'|'reanudar'|'reiniciar'|null}
+ */
+function accionSegunManos(pantalla, cantidadManos) {
+  const manos = Number.isFinite(cantidadManos) ? cantidadManos : 0;
+
+  switch (pantalla) {
+    case 'ready':
+      return manos >= 2 ? 'iniciar' : null;
+    case 'game':
+      return manos === 0 ? 'pausar' : null;
+    case 'paused':
+      return manos >= 1 ? 'reanudar' : null;
+    case 'over':
+      return manos >= 2 ? 'reiniciar' : null;
+    default:
+      return null;
+  }
+}
+/* ============================================================================
+   AUDIO  (reproductor nativo)
    ----------------------------------------------------------------------------
    Archivos en la raíz del proyecto: tetris.mp3 (loop), linea.mp3, gameover.mp3.
-   Todo el audio es opcional: si p5.sound no cargó o falta un archivo, el juego
-   sigue funcionando en silencio.
+   Se usa HTMLAudioElement en lugar de p5.sound: no hay AudioContext ni
+   AudioWorklets, así que no aparecen errores de procesadores ya registrados.
+   Todo el audio es opcional: si falta un archivo o el navegador bloquea el
+   autoplay, el juego sigue funcionando en silencio.
    ==========================================================================*/
 
 const ARCHIVOS_AUDIO = {
@@ -494,65 +555,49 @@ const VOLUMEN_EFECTOS = 0.7;
 let sonidoMusica = null;
 let sonidoLinea = null;
 let sonidoGameOver = null;
-let audioIniciado = false;
+
+/**
+ * Crea un reproductor si el navegador expone Audio. El volumen y el loop se
+ * fijan una sola vez por archivo.
+ * @param {string} ruta
+ * @param {number} volumen 0..1
+ * @param {boolean} loop
+ * @returns {HTMLAudioElement|null}
+ */
+function crearAudio(ruta, volumen, loop) {
+  if (typeof Audio !== 'function') return null;
+
+  const audio = new Audio(ruta);
+  audio.volume = volumen;
+  audio.loop = loop === true;
+  audio.preload = 'auto';
+  return audio;
+}
 
 /** Carga los tres audios sin bloquear el arranque del juego. */
 function cargarAudios() {
-  if (typeof loadSound !== 'function') return;
-
-  sonidoMusica = loadSound(
-    ARCHIVOS_AUDIO.musica,
-    () => { if (audioIniciado) intentarMusica(); },
-    () => { sonidoMusica = null; }
-  );
-
-  sonidoLinea = loadSound(
-    ARCHIVOS_AUDIO.linea,
-    () => {},
-    () => { sonidoLinea = null; }
-  );
-
-  sonidoGameOver = loadSound(
-    ARCHIVOS_AUDIO.gameOver,
-    () => {},
-    () => { sonidoGameOver = null; }
-  );
+  sonidoMusica = crearAudio(ARCHIVOS_AUDIO.musica, VOLUMEN_MUSICA, true);
+  sonidoLinea = crearAudio(ARCHIVOS_AUDIO.linea, VOLUMEN_EFECTOS, false);
+  sonidoGameOver = crearAudio(ARCHIVOS_AUDIO.gameOver, VOLUMEN_EFECTOS, false);
 }
 
-/** Desbloquea el AudioContext con el gesto del usuario. */
-function desbloquearAudio() {
-  if (typeof userStartAudio !== 'function') return null;
+/** Intenta reproducir sin romper nada si el navegador bloquea el autoplay. */
+function reproducir(audio) {
+  if (!audio) return;
 
-  const resultado = userStartAudio();
-  if (resultado && typeof resultado.catch === 'function') {
-    resultado.catch(() => {});
-    return resultado;
-  }
-  return null;
+  const intento = audio.play();
+  if (intento && typeof intento.catch === 'function') intento.catch(() => {});
 }
 
 /**
- * Se llama en cada clic o tecla. La primera vez desbloquea el audio; después
- * reintenta el loop por si el archivo terminó de cargar más tarde.
+ * Se llama al iniciar o reanudar la partida. No hay contexto de audio que
+ * desbloquear: cada intento de reproducción se resuelve solo.
  */
 function iniciarAudio() {
-  if (!audioIniciado) {
-    audioIniciado = true;
-    const desbloqueo = desbloquearAudio();
-    if (desbloqueo && typeof desbloqueo.then === 'function') {
-      // El contexto se reanuda de forma asíncrona: recién ahí se puede sonar.
-      desbloqueo.then(() => intentarMusica()).catch(() => {});
-      return;
-    }
-  } else if (typeof getAudioContext === 'function') {
-    const contexto = getAudioContext();
-    if (contexto && contexto.state === 'suspended') desbloquearAudio();
-  }
-
   intentarMusica();
 }
 
-/** La música suena solo en partida: ni en menús, ni en pausa, ni en game over. */
+/** La música suena solo en partida: ni en espera, ni en pausa, ni en game over. */
 function musicaPermitida() {
   if (window.juego && window.juego.gameOver) return false;
   if (window.TetrisUI && typeof window.TetrisUI.getScreen === 'function') {
@@ -561,50 +606,44 @@ function musicaPermitida() {
   return true;
 }
 
-/** Arranca el loop de la música si el archivo está listo. */
+/** Arranca la música si corresponde y todavía no está sonando. */
 function intentarMusica() {
   if (!musicaPermitida()) return;
-  if (!sonidoMusica || !sonidoMusica.isLoaded()) return;
-  if (sonidoMusica.isPlaying()) return;
+  if (!sonidoMusica || !sonidoMusica.paused) return;
 
-  sonidoMusica.setVolume(VOLUMEN_MUSICA);
-  sonidoMusica.loop();
+  reproducir(sonidoMusica);
 }
 
 /** Corta la música (por ejemplo, al perder la partida). */
 function detenerMusica() {
-  if (!sonidoMusica || !sonidoMusica.isLoaded()) return;
-  if (sonidoMusica.isPlaying()) sonidoMusica.stop();
+  if (!sonidoMusica || sonidoMusica.paused) return;
+
+  sonidoMusica.pause();
+  sonidoMusica.currentTime = 0;
 }
 
 /** Vuelve a arrancar la música y corta el efecto de game over (al reiniciar). */
 function reanudarAudio() {
-  if (sonidoGameOver && sonidoGameOver.isLoaded() && sonidoGameOver.isPlaying()) {
-    sonidoGameOver.stop();
+  if (sonidoGameOver && !sonidoGameOver.paused) {
+    sonidoGameOver.pause();
+    sonidoGameOver.currentTime = 0;
   }
   intentarMusica();
 }
 
 /** ¿La música está sonando de verdad? */
 function musicaActiva() {
-  if (!sonidoMusica || !sonidoMusica.isLoaded()) return false;
-  if (!sonidoMusica.isPlaying()) return false;
-
-  if (typeof getAudioContext === 'function') {
-    const contexto = getAudioContext();
-    if (contexto && contexto.state !== 'running') return false;
-  }
-
-  return true;
+  return !!(sonidoMusica && !sonidoMusica.paused);
 }
 
 /** Reproduce un efecto una vez. Si ya estaba sonando, lo reinicia. */
 function reproducirEfecto(sonido) {
-  if (!sonido || !sonido.isLoaded()) return;
+  if (!sonido) return;
 
-  if (sonido.isPlaying()) sonido.stop();
-  sonido.setVolume(VOLUMEN_EFECTOS);
-  sonido.play();
+  if (!sonido.paused) sonido.pause();
+  sonido.currentTime = 0;
+  sonido.volume = VOLUMEN_EFECTOS;
+  reproducir(sonido);
 }
 
 /* ============================================================================
@@ -619,6 +658,7 @@ if (typeof window !== 'undefined') {
     Pieza,
     Tablero,
     JuegoTetris,
+    accionSegunManos,
     CONFIG_JUEGO,
     COLUMNAS,
     FILAS,
@@ -633,6 +673,7 @@ if (typeof module !== 'undefined' && module.exports) {
     Pieza,
     Tablero,
     JuegoTetris,
+    accionSegunManos,
     CONFIG_JUEGO,
     COLUMNAS,
     FILAS,

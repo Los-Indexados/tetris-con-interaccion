@@ -10,7 +10,7 @@ El juego ahora se controla exclusivamente mediante **5 gestos primarios** detect
 
 ### 1. 🖐️ **Mano Abierta** - Desplazamiento Horizontal
 
-**Detección:** 5 dedos extendidos
+**Detección:** Índice, medio, anular y meñique extendidos (el pulgar no se exige)
 
 **Comportamiento:**
 - La posición horizontal de la palma (X) se mapea directamente a una columna (0-15)
@@ -31,36 +31,58 @@ El juego ahora se controla exclusivamente mediante **5 gestos primarios** detect
 
 **Comportamiento:**
 - Mantener el gesto acelera la caída de la pieza
+- La aceleración sigue mientras el gesto esté detectado: no depende de un evento de inicio
+- Al cambiar de gesto (o al pausarse la partida) la velocidad vuelve a la normal
 - Solo funciona durante una partida activa
-- Al soltar el gesto, la velocidad vuelve a la normal
 
 **Eventos:** 
-- `victoria:inicio { mano, timestamp }`
-- `victoria:fin { timestamp }`
+- `victoria:inicio { mano, timestamp }` (transición)
+- `victoria:fin { timestamp }` (transición)
 
 **Notas:**
+- `sketch.js` lee el gesto actual en cada frame; los eventos quedan como aviso de transición
 - El pulgar se ignora (puede estar en cualquier posición)
-- Cooldown interno de 300ms para evitar parpadeos del detector
+- La mano abierta se reconoce con los cuatro dedos largos (el pulgar no se exige)
+- El filtro One Euro está configurado para responder en ~130 ms, así el gesto arranca y corta a tiempo
 
 ---
 
-### 3. 👐👐 **Dos Manos** - Iniciar / Reiniciar
+### 3. 👍 **Pulgar Arriba** - Rotar Pieza
 
-**Detección:** Ambas manos visibles en la cámara
+**Detección:** Pulgar levantado y los otros cuatro dedos doblados
 
 **Comportamiento:**
-- En pantalla START: Inicia una nueva partida
-- En pantalla GAME OVER: Reinicia la partida
-- En pantalla de juego: Sin efecto
+- Cada confirmación gira la pieza 90° en sentido horario
+- Solo funciona durante una partida activa
+- El gesto se confirma como instantáneo con 300ms de cooldown (no hace falta sostenerlo)
 
-**Evento:** `dos:manos { cantidad: 2, timestamp }`
+**Evento:** `gesto:confirmado { gesto: 'PULGAR_ARRIBA', manoDuena, timestamp }`
 
 **Notas:**
-- Se emite una sola vez cuando pasan de 1 a 2 manos
+- `sketch.js` lo traduce a `motor.rotar()`; el wall-kick del motor resuelve los choques laterales
+- No hay gesto para rotar en antihorario
 
 ---
 
-### 4. 🤘 **Rock Sign** - Ciclar Fondos
+### 4. 👐👐 **Dos Manos** - Iniciar / Reiniciar
+
+**Detección:** Dos manos visibles al mismo tiempo
+
+**Comportamiento:**
+- En pantalla de espera (solo el escenario visible): inicia la partida
+- En pantalla GAME OVER: reinicia la partida
+- Durante el juego: la partida sigue normalmente (no pausa)
+
+**Evento:** `mano:detectada { cantidad: 2, lado, mano, primera, timestamp }`
+
+**Notas:**
+- No hay evento aparte para dos manos: la cantidad visible viaja en
+  `mano:detectada` / `mano:perdida`
+- `mano` es el ordinal de aparición (1 = primera detectada, 2 = segunda)
+
+---
+
+### 5. 🤘 **Rock Sign** - Ciclar Fondos
 
 **Detección:** Índice, meñique y pulgar levantados; medio y anular doblados
 
@@ -77,7 +99,7 @@ El juego ahora se controla exclusivamente mediante **5 gestos primarios** detect
 
 ---
 
-### 5. 🖐️ **Sin Manos** - Pausa Automática
+### 6. 🖐️ **Sin Manos** - Pausa Automática
 
 **Detección:** Ninguna mano visible en la cámara
 
@@ -87,10 +109,11 @@ El juego ahora se controla exclusivamente mediante **5 gestos primarios** detect
 - Solo funciona durante una partida activa
 
 **Eventos:**
-- `mano:perdida { timestamp }` → Pausa si está jugando
-- `mano:detectada { cantidad, timestamp }` → Reanuda si está pausado
+- `mano:perdida { cantidad: 0, lado, timestamp }` → Pausa si estaba jugando
+- `mano:detectada { cantidad, lado, mano, primera, timestamp }` → Reanuda si está pausado
 
 **Notas:**
+- Solo se pausa con CERO manos: si desaparece una de las dos, el juego sigue
 - Tolerancia de desaparición: 200ms (evita falsas pausas por parpadeos)
 - Mantiene el estado del juego intacto
 
@@ -101,13 +124,13 @@ El juego ahora se controla exclusivamente mediante **5 gestos primarios** detect
 ### Inicio de Partida
 
 ```
-Pantalla START
+Escenario de Tetris (sin partida)
     ↓
 Usuario muestra DOS MANOS
     ↓
-Evento: dos:manos
+Evento: mano:detectada { cantidad: 2 }
     ↓
-sketch.js: ui.trigger('start')
+sketch.js: Tetris.accionSegunManos('ready', 2) => 'iniciar'
     ↓
 Pantalla GAME, partida inicia
 ```
@@ -115,21 +138,21 @@ Pantalla GAME, partida inicia
 ### Juego Activo
 
 ```
-JUEGO ACTIVO + SIN MANOS
+JUEGO ACTIVO + CERO MANOS
     ↓
-Evento: mano:perdida
+Evento: mano:perdida { cantidad: 0 }
     ↓
-sketch.js: ui.trigger('pause')
+sketch.js: Tetris.accionSegunManos('game', 0) => 'pausar'
     ↓
-Pantalla PAUSED
+Pantalla PAUSA (solo el texto)
 
-PANTALLA PAUSED + MANO REAPARECE
+PANTALLA PAUSA + UNA MANO REAPARECE
     ↓
-Evento: mano:detectada
+Evento: mano:detectada { cantidad: 1 }
     ↓
-sketch.js: ui.trigger('resume')
+sketch.js: Tetris.accionSegunManos('paused', 1) => 'reanudar'
     ↓
-Pantalla GAME (reanuda)
+Pantalla GAME (reanuda sola)
 ```
 
 ### Cambio de Fondo
@@ -157,7 +180,8 @@ CONFIG = {
   // Suavizado
   SMOOTHING_ENABLED: true
   SMOOTHING_METHOD: 'oneEuro'  // 'ema' o 'oneEuro'
-  ONE_EURO_MIN_CUTOFF: 0.7     // Más bajo = más fluido
+  ONE_EURO_MIN_CUTOFF: 4.0     // Más alto = menos retardo (pose más reactiva)
+  ONE_EURO_BETA: 0.3           // Respuesta extra con movimiento rápido
   DEADZONE_THRESHOLD: 0.002    // Movimiento mínimo ignorado
   
   // Desaparición de manos
@@ -173,8 +197,8 @@ CONFIG = {
   HOLD_COOLDOWN_MS: 1500  // Cooldown entre gestos con sostenimiento
   PAUSE_GESTURE_COOLDOWN_MS: 500  // Cooldown antigesto de pausa
   
-  // Gestos instantáneos (sin hold)
-  GESTURES_INSTANT: ['ROCK']
+  // Gestos instantáneos (sin hold); cada uno tiene su propio cooldown de 300 ms
+  GESTURES_INSTANT: ['ROCK', 'PULGAR_ARRIBA']
   
   // Gestos continuos
   GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'VICTORIA']
@@ -186,6 +210,16 @@ CONFIG = {
   MOVEMENT_JITTER_THRESHOLD: 0.01
 }
 ```
+
+### Prioridad y cruces de gestos
+
+- Con dos manos, los gestos discretos (VICTORIA, ROCK, PULGAR_ARRIBA) funcionan
+  con cualquiera de las dos; la mano principal solo define el control horizontal.
+- Un puño de descanso en la otra mano no bloquea el movimiento.
+- Cada gesto instantáneo tiene su propio cooldown de 300 ms: ROCK y
+  PULGAR_ARRIBA pueden usarse seguidos sin bloquearse.
+- Mientras ROCK siga detectado avanza un escenario cada 300 ms; al cambiar de
+  gesto se detiene. Un destello corto cambia un solo escenario.
 
 ---
 
@@ -288,4 +322,4 @@ Observa los logs para:
 **Versión:** 2.0  
 **Fecha:** 2026-11-13  
 **Motor de Detección:** MediaPipe Hands + TensorFlow.js  
-**Gestos Activos:** 5 (Mano abierta, Victory, Dos manos, Rock, Sin manos)
+**Gestos Activos:** 5 (Mano abierta, Victoria, Pulgar arriba, Rock, Sin manos) + regla de dos manos

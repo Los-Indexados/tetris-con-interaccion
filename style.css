@@ -105,11 +105,7 @@
     padding: clamp(18px, 3vw, 40px);
 }
 
-.tui-app[data-tui-screen="start"] .tui-screen--start,
-.tui-app[data-tui-screen="scenarios"] .tui-screen--scenarios {
-    display: flex;
-}
-
+.tui-app[data-tui-screen="ready"] .tui-screen--game,
 .tui-app[data-tui-screen="game"] .tui-screen--game,
 .tui-app[data-tui-screen="paused"] .tui-screen--game,
 .tui-app[data-tui-screen="over"] .tui-screen--game {
@@ -124,15 +120,12 @@
     display: grid;
 }
 
-/* ---------------------------------------------------------------- tipografía */
-
-.tui-kicker {
-    margin: 0;
-    font-size: 11px;
-    letter-spacing: 0.42em;
-    color: var(--tui-lime);
-    text-shadow: 0 0 10px rgba(57, 227, 74, 0.55);
+/* Indicación de inicio: solo mientras se esperan las dos manos. */
+.tui-app[data-tui-screen="ready"] .tui-game-start-overlay {
+    display: flex;
 }
+
+/* ---------------------------------------------------------------- tipografía */
 
 .tui-title {
     margin: 0;
@@ -142,367 +135,7 @@
     text-shadow: 0 0 16px var(--tui-accent);
 }
 
-/* ------------------------------------------------------------- botones ----- */
 
-.tui-btn {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 220px;
-    padding: 14px 22px;
-    font: inherit;
-    font-size: 12px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--tui-ink);
-    background: linear-gradient(180deg, #232A45 0%, #141A2E 100%);
-    border: 2px solid rgba(255, 255, 255, 0.12);
-    border-radius: 0;
-    cursor: pointer;
-    box-shadow:
-        0 4px 0 rgba(0, 0, 0, 0.75),
-        0 8px 18px rgba(0, 0, 0, 0.45),
-        inset 0 1px 0 rgba(255, 255, 255, 0.18);
-    transition: transform 0.08s ease, box-shadow 0.12s ease,
-        border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
-}
-
-.tui-btn[data-tui-hover="true"],
-.tui-btn:hover {
-    border-color: var(--tui-accent);
-    color: #FFFFFF;
-    box-shadow:
-        0 5px 0 rgba(0, 0, 0, 0.75),
-        0 10px 22px rgba(0, 0, 0, 0.5),
-        0 0 18px var(--tui-accent),
-        inset 0 1px 0 rgba(255, 255, 255, 0.22);
-}
-
-.tui-btn:focus-visible {
-    outline: 2px solid var(--tui-lime);
-    outline-offset: 3px;
-}
-
-/* Presionado: baja y pierde profundidad, como un pulsador de arcade. */
-.tui-btn:active,
-.tui-btn[data-tui-pressed="true"] {
-    transform: translateY(4px);
-    border-color: var(--tui-accent);
-    background: linear-gradient(180deg, #0F1428 0%, #0A0E1C 100%);
-    box-shadow:
-        0 0 0 rgba(0, 0, 0, 0),
-        inset 0 3px 10px rgba(0, 0, 0, 0.9),
-        0 0 16px var(--tui-accent);
-}
-
-.tui-btn:disabled,
-.tui-btn[aria-disabled="true"] {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
-    filter: grayscale(0.7);
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.tui-btn--primary {
-    background: linear-gradient(180deg, #4A6BFF 0%, var(--tui-accent) 55%, #1C36A8 100%);
-    border-color: var(--tui-accent);
-    color: #05070F;
-    font-weight: 700;
-    box-shadow:
-        0 4px 0 rgba(0, 0, 0, 0.75),
-        0 8px 20px rgba(0, 0, 0, 0.45),
-        0 0 18px var(--tui-accent),
-        inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-.tui-btn--primary:hover {
-    color: #05070F;
-    box-shadow:
-        0 5px 0 rgba(0, 0, 0, 0.75),
-        0 10px 24px rgba(0, 0, 0, 0.5),
-        0 0 28px var(--tui-accent),
-        inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-.tui-btn--primary:active,
-.tui-btn--primary[data-tui-pressed="true"] {
-    background: var(--tui-accent);
-    filter: brightness(0.82);
-    box-shadow:
-        inset 0 3px 10px rgba(0, 0, 0, 0.55),
-        0 0 18px var(--tui-accent);
-}
-
-.tui-btn--sm {
-    min-width: 0;
-    padding: 8px 16px;
-    font-size: 10px;
-}
-
-.tui-btn--round {
-    width: 62px;
-    height: 62px;
-    min-width: 0;
-    padding: 0;
-    border-radius: 50%;
-    font-size: 17px;
-    letter-spacing: 0.06em;
-    border-width: 3px;
-}
-
-.tui-btn--start {
-    min-width: 92px;
-    padding: 10px 18px;
-    border-radius: 999px;
-    font-size: 10px;
-}
-
-/* Colores de los botones de acción, al estilo consola. */
-.tui-btn[data-tui-control="a"] {
-    color: var(--tui-lime);
-    border-color: rgba(57, 227, 74, 0.6);
-}
-
-.tui-btn[data-tui-control="a"]:hover,
-.tui-btn[data-tui-control="a"][data-tui-pressed="true"] {
-    border-color: var(--tui-lime);
-    box-shadow:
-        inset 0 3px 10px rgba(0, 0, 0, 0.8),
-        0 0 20px var(--tui-lime);
-}
-
-.tui-btn[data-tui-control="b"] {
-    color: var(--tui-fuchsia);
-    border-color: rgba(255, 45, 170, 0.6);
-}
-
-.tui-btn[data-tui-control="b"]:hover,
-.tui-btn[data-tui-control="b"][data-tui-pressed="true"] {
-    border-color: var(--tui-fuchsia);
-    box-shadow:
-        inset 0 3px 10px rgba(0, 0, 0, 0.8),
-        0 0 20px var(--tui-fuchsia);
-}
-/* ------------------------------------------------------------- inicio ----- */
-
-.tui-screen--start {
-    align-items: center;
-    justify-content: center;
-    background: radial-gradient(circle at 50% 42%, #12204D 0%, var(--tui-cosmos) 62%);
-}
-
-.tui-start {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: clamp(18px, 3vh, 34px);
-    text-align: center;
-}
-
-.tui-start__actions {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.tui-start__hint {
-    margin: 0;
-    font-size: 9px;
-    letter-spacing: 0.3em;
-    color: var(--tui-ink-dim);
-}
-
-.tui-logo {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.55em;
-    margin: 0;
-    font-size: clamp(38px, 9vw, 96px);
-    line-height: 0.9;
-    letter-spacing: 0.14em;
-}
-
-.tui-logo__word {
-    display: flex;
-    gap: 0.04em;
-}
-
-.tui-logo__letter {
-    display: inline-block;
-    text-shadow: 0 0 6px currentColor, 0 0 22px currentColor, 4px 4px 0 rgba(5, 7, 15, 0.9);
-    animation: tui-bob 3.2s ease-in-out infinite;
-}
-
-.tui-logo__letter:nth-child(1) { color: var(--tui-blue); animation-delay: 0s; }
-.tui-logo__letter:nth-child(2) { color: var(--tui-lime); animation-delay: 0.12s; }
-.tui-logo__letter:nth-child(3) { color: var(--tui-fuchsia); animation-delay: 0.24s; }
-.tui-logo__letter:nth-child(4) { color: var(--tui-tangerine); animation-delay: 0.36s; }
-.tui-logo__letter:nth-child(5) { color: var(--tui-yellow); animation-delay: 0.48s; }
-.tui-logo__letter:nth-child(6) { color: var(--tui-blue); animation-delay: 0.6s; }
-
-.tui-logo__sub {
-    font-size: clamp(9px, 1.3vw, 13px);
-    letter-spacing: 0.5em;
-    color: var(--tui-ink-dim);
-}
-
-/* Decoración: celdas flotantes. */
-.tui-deco {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    overflow: hidden;
-    pointer-events: none;
-}
-
-.tui-deco__cell {
-    position: absolute;
-    width: 14px;
-    height: 14px;
-    background: currentColor;
-    opacity: 0.5;
-    box-shadow: 0 0 14px currentColor;
-    animation: tui-float 9s linear infinite;
-}
-
-.tui-deco__cell:nth-child(1) { left: 8%;  top: 16%; color: var(--tui-blue);      animation-delay: -1s; }
-.tui-deco__cell:nth-child(2) { left: 18%; top: 72%; color: var(--tui-lime);      animation-delay: -3.5s; }
-.tui-deco__cell:nth-child(3) { left: 84%; top: 22%; color: var(--tui-fuchsia);   animation-delay: -5.2s; }
-.tui-deco__cell:nth-child(4) { left: 92%; top: 64%; color: var(--tui-yellow);    animation-delay: -2.4s; }
-.tui-deco__cell:nth-child(5) { left: 30%; top: 8%;  color: var(--tui-tangerine); animation-delay: -6.8s; }
-.tui-deco__cell:nth-child(6) { left: 70%; top: 84%; color: var(--tui-blue);      animation-delay: -4.1s; }
-.tui-deco__cell:nth-child(7) { left: 4%;  top: 46%; color: var(--tui-fuchsia);   animation-delay: -7.6s; }
-.tui-deco__cell:nth-child(8) { left: 96%; top: 40%; color: var(--tui-lime);      animation-delay: -0.6s; }
-
-/* --------------------------------------------------- selección de escenario */
-
-.tui-screen--scenarios {
-    align-items: center;
-    justify-content: center;
-}
-
-.tui-select {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: clamp(16px, 3vh, 28px);
-    width: min(1080px, 100%);
-}
-
-.tui-scenarios {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: clamp(12px, 1.4vw, 20px);
-    width: 100%;
-}
-
-.tui-scenario {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px;
-    text-align: left;
-    font: inherit;
-    color: var(--tui-ink);
-    background: var(--tui-panel);
-    border: 2px solid var(--tui-line);
-    border-radius: 0;
-    cursor: pointer;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-
-.tui-scenario[data-tui-hover="true"],
-.tui-scenario:hover {
-    border-color: var(--tui-accent);
-    transform: translateY(-3px);
-}
-
-.tui-scenario:focus-visible {
-    outline: 2px solid var(--tui-lime);
-    outline-offset: 3px;
-}
-
-.tui-scenario--selected {
-    border-color: var(--tui-accent);
-    box-shadow: 0 0 0 2px var(--tui-accent), var(--tui-glow);
-}
-
-/* Miniatura del escenario: misma imagen que usa el tablero, con un velo para
-   que el nombre y el borde de selección sigan leyéndose. */
-.tui-scenario__preview {
-    display: block;
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    background-color: #0A0D16;
-    background-image:
-        linear-gradient(rgba(5, 7, 15, 0.35), rgba(5, 7, 15, 0.6)),
-        var(--tui-thumb, none);
-    background-size: cover, cover;
-    background-position: center, center;
-    background-repeat: no-repeat, no-repeat;
-    border: 2px solid rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.7);
-    transition: box-shadow 0.18s ease, border-color 0.18s ease;
-}
-
-.tui-scenario[data-tui-scenario-id="catedral"] {
-    --tui-thumb: url("Catedral.png");
-}
-
-.tui-scenario[data-tui-scenario-id="puente-roto"] {
-    --tui-thumb: url("Puente%20Roto.png");
-}
-
-.tui-scenario[data-tui-scenario-id="santa-ana"] {
-    --tui-thumb: url("Santa%20Ana.png");
-}
-
-.tui-scenario[data-tui-scenario-id="tranvia"] {
-    --tui-thumb: url("Tranv%C3%ADa.png");
-}
-
-.tui-scenario--selected .tui-scenario__preview {
-    border-color: var(--tui-accent);
-    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.7), 0 0 18px rgba(47, 85, 245, 0.5);
-}
-.tui-scenario__index {
-    font-size: 9px;
-    letter-spacing: 0.3em;
-    color: var(--tui-ink-dim);
-}
-
-.tui-scenario__name {
-    font-size: clamp(14px, 1.6vw, 18px);
-    letter-spacing: 0.16em;
-}
-
-.tui-scenario__badge {
-    display: none;
-    align-self: flex-start;
-    padding: 3px 8px;
-    font-size: 8px;
-    letter-spacing: 0.24em;
-    color: var(--tui-void);
-    background: var(--tui-accent);
-}
-
-.tui-scenario--selected .tui-scenario__badge {
-    display: inline-block;
-    animation: tui-pulse 1.8s ease-in-out infinite;
-}
-
-.tui-select__actions {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-}
 
 /* ------------------------------------------------------------- partida ---- */
 
@@ -516,6 +149,7 @@
 
 /* Carcasa: ocupa toda la pantalla al iniciar la partida. */
 .tui-console {
+    position: relative;
     display: grid;
     grid-template-columns: clamp(160px, 17vw, 210px) minmax(0, 1fr) clamp(190px, 22vw, 250px);
     grid-template-rows: auto minmax(0, 1fr);
@@ -579,6 +213,7 @@
     min-width: 0;
     min-height: 0;
     padding: clamp(6px, 1vh, 14px);
+    position: relative;
     background: #04060C;
     border: 2px solid #000000;
     box-shadow:
@@ -759,35 +394,6 @@
     transform: scaleX(-1);
 }
 
-/* Cursor de mano (coordenadas normalizadas que llegan por moveCursor). */
-.tui-cursor {
-    position: fixed;
-    left: 50%;
-    top: 50%;
-    width: 28px;
-    height: 28px;
-    margin: -14px 0 0 -14px;
-    border: 2px solid var(--tui-lime);
-    border-radius: 50%;
-    box-shadow: 0 0 12px var(--tui-lime), inset 0 0 8px rgba(57, 227, 74, 0.45);
-    pointer-events: none;
-    z-index: 60;
-    display: none;
-    transition: left 0.06s linear, top 0.06s linear;
-}
-
-.tui-cursor[data-tui-visible="true"] {
-    display: block;
-}
-
-.tui-cursor::after {
-    content: "";
-    position: absolute;
-    inset: 9px;
-    border-radius: 50%;
-    background: var(--tui-lime);
-    box-shadow: 0 0 8px var(--tui-lime);
-}
 
 /* Espacio reservado para la cámara de handpose (inferior derecha). */
 .tui-camera {
@@ -848,258 +454,90 @@
     color: var(--tui-ink-dim);
 }
 
-/* Panel de controles: columna izquierda, orden vertical PAUSA → cruceta → A/B. */
-.tui-console__controls {
+/* ------------------------------------------------------ guía de gestos ---- */
+/* Lateral izquierdo: icono + acción de cada gesto. La fila se ilumina cuando
+   ese gesto está activo (estado sostenido o destello puntual). */
+.tui-gestures {
     grid-area: controls;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    min-height: 0;
-    padding: clamp(10px, 1.4vh, 18px) clamp(8px, 1vw, 14px);
+    align-self: start;
+    gap: 8px;
+    padding: clamp(8px, 1vw, 14px);
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.2));
     border: 2px solid rgba(255, 255, 255, 0.05);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-/* Grupo de controles centrado verticalmente en la columna. */
-.tui-controls__stack {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: clamp(34px, 6vh, 64px);
-    width: 100%;
-    margin: auto 0;
-}
-
-/* Cruceta: una sola pieza con forma de cruz (clip-path).
-   Dos capas separadas a propósito:
-     .tui-pad-base  -> sombra proyectada. No se transforma, no gira.
-     .tui-pad-shell -> la pieza que bascula sobre su eje.
-   Si la sombra viviera en el elemento que rota, giraría junto con la cruceta
-   y el efecto se vería falso. */
-.tui-pad-base {
-    --tui-pad-cell: clamp(42px, 4.8vh, 54px);
-    --tui-cross: polygon(
-        33.34% 0, 66.66% 0,
-        66.66% 33.34%, 100% 33.34%,
-        100% 66.66%, 66.66% 66.66%,
-        66.66% 100%, 33.34% 100%,
-        33.34% 66.66%, 0 66.66%,
-        0 33.34%, 33.34% 33.34%
-    );
-    position: relative;
-    flex: 0 0 auto;
-    filter:
-        drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55))
-        drop-shadow(0 10px 16px rgba(0, 0, 0, 0.45));
-    transition: filter 0.12s ease;
-}
-
-/* Canto de la pieza: la "pared" que se ve cuando la cruceta se levanta.
-   Queda fija para que el volumen no gire con la inclinación. */
-.tui-pad-base::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, #0B0F1E 0%, #04060C 100%);
-    clip-path: var(--tui-cross);
-    transform: translateY(4px);
-}
-
-.tui-pad-shell {
-    position: relative;
-    padding: 4px;
-    background: linear-gradient(180deg, #303A5E 0%, #232A45 45%, #141A2E 100%);
-    clip-path: var(--tui-cross);
-    transform: perspective(900px) rotateX(0deg) rotateY(0deg);
-    transform-origin: 50% 50%;
-    transition: transform 0.1s cubic-bezier(0.2, 0.85, 0.3, 1);
-}
-
-/* Reflejo superior: la luz siempre viene de arriba. */
-.tui-pad-shell::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 45%);
-}
-
-/* La pieza bascula sobre el centro: el lado presionado baja, el opuesto sube.
-   La sombra se acorta y se arrima porque la pieza entra en el panel. */
-.tui-pad-base[data-tui-tilt="up"] {
-    filter:
-        drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55))
-        drop-shadow(0 5px 9px rgba(0, 0, 0, 0.5));
-}
-
-.tui-pad-base[data-tui-tilt="up"] .tui-pad-shell {
-    transform: perspective(1000px) rotateX(16deg) translateY(2px);
-}
-
-.tui-pad-base[data-tui-tilt="down"] {
-    filter:
-        drop-shadow(0 1px 0 rgba(0, 0, 0, 0.55))
-        drop-shadow(0 5px 9px rgba(0, 0, 0, 0.5));
-}
-
-.tui-pad-base[data-tui-tilt="down"] .tui-pad-shell {
-    transform: perspective(900px) rotateX(-11deg) translateY(1px);
-}
-
-.tui-pad-base[data-tui-tilt="left"] {
-    filter:
-        drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55))
-        drop-shadow(0 7px 12px rgba(0, 0, 0, 0.5));
-}
-
-.tui-pad-base[data-tui-tilt="left"] .tui-pad-shell {
-    transform: perspective(1000px) rotateY(-16deg) translateY(2px);
-}
-
-.tui-pad-base[data-tui-tilt="right"] {
-    filter:
-        drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55))
-        drop-shadow(0 7px 12px rgba(0, 0, 0, 0.5));
-}
-
-.tui-pad-base[data-tui-tilt="right"] .tui-pad-shell {
-    transform: perspective(1000px) rotateY(16deg) translateY(2px);
-}
-
-/* El lado que baja queda en sombra; el que sube recibe la luz. */
-.tui-pad-base[data-tui-tilt="up"] .tui-pad {
-    background-image:
-        linear-gradient(180deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
-        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
-}
-
-.tui-pad-base[data-tui-tilt="down"] .tui-pad {
-    background-image:
-        linear-gradient(0deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
-        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
-}
-
-.tui-pad-base[data-tui-tilt="left"] .tui-pad {
-    background-image:
-        linear-gradient(90deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
-        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
-}
-
-.tui-pad-base[data-tui-tilt="right"] .tui-pad {
-    background-image:
-        linear-gradient(270deg, rgba(0, 0, 0, 0.5) 0%, rgba(255, 255, 255, 0.07) 100%),
-        linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
-}
-
-.tui-pad {
-    display: grid;
-    grid-template-columns: repeat(3, var(--tui-pad-cell));
-    grid-template-rows: repeat(3, var(--tui-pad-cell));
-    clip-path: var(--tui-cross);
-    background: linear-gradient(180deg, #1E2540 0%, #0E1224 55%, #090C18 100%);
-    box-shadow:
-        inset 0 2px 0 rgba(255, 255, 255, 0.1),
-        inset 0 -3px 0 rgba(0, 0, 0, 0.55);
-}
-
-.tui-pad__btn {
-    min-width: 0;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    color: var(--tui-ink-dim);
-    font-size: 13px;
-    letter-spacing: 0;
-    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85), 0 -1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.tui-pad__btn[data-tui-hover="true"],
-.tui-pad__btn:hover {
-    border-color: transparent;
-    color: var(--tui-ink);
-    background: rgba(255, 255, 255, 0.06);
-    box-shadow: none;
-    transform: none;
-}
-
-/* Mismo hundimiento que el resto de los botones, pero contenido en la pieza. */
-.tui-pad__btn:active,
-.tui-pad__btn[data-tui-pressed="true"] {
-    transform: none;
-    border-color: transparent;
-    color: #FFFFFF;
-    background: rgba(47, 85, 245, 0.3);
-    box-shadow:
-        inset 0 3px 10px rgba(0, 0, 0, 0.85),
-        inset 0 0 16px rgba(47, 85, 245, 0.75);
-}
-
-.tui-pad__btn--up { grid-column: 2; grid-row: 1; }
-.tui-pad__btn--left { grid-column: 1; grid-row: 2; }
-.tui-pad__btn--right { grid-column: 3; grid-row: 2; }
-.tui-pad__btn--down { grid-column: 2; grid-row: 3; }
-
-.tui-pad__hub {
-    grid-column: 2;
-    grid-row: 2;
-    align-self: center;
-    justify-self: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 50% 35%, #2A3150 0%, #10152A 70%);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.14),
-        0 1px 2px rgba(0, 0, 0, 0.6);
-}
-/* A / B debajo de la cruceta. */
-.tui-controls__actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(14px, 1.8vw, 22px);
-    flex: 0 0 auto;
-}
-
-/* Ventilación, LED y etiqueta, al pie del panel. */
-.tui-controls__meta {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-}
-
-.tui-console__vent {
-    width: 72%;
-    height: 14px;
-    opacity: 0.45;
-    background: repeating-linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0.16) 0 2px,
-        transparent 2px 9px
-    );
-}
-
-.tui-console__led {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--tui-lime);
-    box-shadow: 0 0 10px var(--tui-lime);
-    animation: tui-blink 1.8s steps(2, end) infinite;
-}
-
-.tui-console__base-label {
+.tui-gestures__title {
+    margin: 0;
     font-size: 9px;
-    letter-spacing: 0.3em;
+    letter-spacing: 0.32em;
     color: var(--tui-ink-dim);
 }
+
+.tui-gestures__list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tui-gesture {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 7px;
+    background: rgba(5, 7, 15, 0.45);
+    border: 1px solid transparent;
+    opacity: 0.55;
+    transition: opacity 0.12s ease, background 0.12s ease,
+        border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.tui-gesture[data-tui-active="true"] {
+    opacity: 1;
+    background: rgba(57, 227, 74, 0.14);
+    border-color: var(--tui-lime);
+    box-shadow: 0 0 14px rgba(57, 227, 74, 0.4),
+        inset 0 0 12px rgba(57, 227, 74, 0.15);
+}
+
+.tui-gesture__icon {
+    flex: 0 0 auto;
+    font-size: 19px;
+    line-height: 1;
+    transition: transform 0.12s ease;
+}
+
+.tui-gesture[data-tui-active="true"] .tui-gesture__icon {
+    animation: tui-gesture-pulse 0.7s ease-in-out infinite;
+}
+
+.tui-gesture__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tui-gesture__name {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--tui-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tui-gesture__action {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+    color: var(--tui-ink-dim);
+}
+
 /* --------------------------------------------------------------- pausa ---- */
 
 .tui-pause,
@@ -1129,130 +567,10 @@
     animation: tui-pop 0.18s ease-out;
 }
 
-.tui-pause__hint {
-    margin: 0;
-    font-size: 10px;
-    letter-spacing: 0.3em;
-    color: var(--tui-ink-dim);
-}
-
-.tui-pause__actions {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    width: 100%;
-    margin-top: 6px;
-}
-
-.tui-pause__actions .tui-btn {
-    width: 100%;
-    min-width: 0;
-}
 
 
-/* ------------------------------------------------------------ game over --- */
-
-/* En este menú el acento es rojo: botones, hover, foco y presión. */
-.tui-over {
-    --tui-accent: var(--tui-danger);
-    --tui-glow: 0 0 14px rgba(255, 77, 109, 0.55);
-}
-
-.tui-over .tui-title {
-    color: var(--tui-danger);
-    text-shadow: 0 0 18px rgba(255, 77, 109, 0.65);
-}
-
-.tui-over .tui-btn {
-    background: linear-gradient(180deg, #3A2230 0%, #1E1220 100%);
-    border-color: rgba(255, 77, 109, 0.38);
-}
-
-.tui-over .tui-btn:active,
-.tui-over .tui-btn[data-tui-pressed="true"] {
-    background: linear-gradient(180deg, #2A1119 0%, #170A10 100%);
-}
-
-.tui-over .tui-btn:focus-visible {
-    outline-color: var(--tui-danger);
-}
-
-.tui-over .tui-btn--primary {
-    background: linear-gradient(180deg, #FF7A8F 0%, var(--tui-danger) 55%, #A81C33 100%);
-    border-color: var(--tui-danger);
-    box-shadow:
-        0 4px 0 rgba(0, 0, 0, 0.75),
-        0 8px 20px rgba(0, 0, 0, 0.45),
-        0 0 18px var(--tui-danger),
-        inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-.tui-over .tui-btn--primary:hover {
-    box-shadow:
-        0 5px 0 rgba(0, 0, 0, 0.75),
-        0 10px 24px rgba(0, 0, 0, 0.5),
-        0 0 28px var(--tui-danger),
-        inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-.tui-over .tui-btn--primary:active,
-.tui-over .tui-btn--primary[data-tui-pressed="true"] {
-    background: var(--tui-danger);
-    filter: brightness(0.82);
-    box-shadow:
-        inset 0 3px 10px rgba(0, 0, 0, 0.55),
-        0 0 18px var(--tui-danger);
-}
-
-.tui-over .tui-pause__panel {
-    border-color: var(--tui-danger);
-    box-shadow: 0 0 40px rgba(255, 77, 109, 0.45), inset 0 0 40px rgba(0, 0, 0, 0.8);
-}
-
-.tui-over__score {
-    width: 100%;
-    margin-top: 4px;
-    padding: 10px 12px;
-    background: #04060C;
-    border: 2px solid rgba(255, 77, 109, 0.55);
-    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.9);
-    text-align: center;
-}
-
-.tui-over__score-label {
-    display: block;
-    font-size: 9px;
-    letter-spacing: 0.3em;
-    color: var(--tui-ink-dim);
-}
-
-.tui-over__score-value {
-    display: block;
-    margin-top: 4px;
-    font-size: clamp(22px, 3vw, 30px);
-    letter-spacing: 0.14em;
-    color: var(--tui-danger);
-    font-variant-numeric: tabular-nums;
-    text-shadow: 0 0 14px rgba(255, 77, 109, 0.7);
-}
 
 /* ------------------------------------------------------------ animaciones -- */
-
-@keyframes tui-bob {
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-6px); }
-}
-
-@keyframes tui-float {
-    0%   { transform: translateY(0) rotate(0deg); }
-    50%  { transform: translateY(-22px) rotate(90deg); }
-    100% { transform: translateY(0) rotate(180deg); }
-}
-
-@keyframes tui-pulse {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.45; }
-}
 
 @keyframes tui-blink {
     0%, 49%   { opacity: 1; }
@@ -1271,19 +589,12 @@
     to   { opacity: 1; transform: scale(1); }
 }
 
+@keyframes tui-gesture-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.14); }
+}
+
 /* ------------------------------------------------------------- responsive -- */
-
-@media (max-width: 1100px) {
-    .tui-scenarios {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 640px) {
-    .tui-scenarios {
-        grid-template-columns: 1fr;
-    }
-}
 
 @media (max-width: 900px) {
 
@@ -1292,8 +603,8 @@
         grid-template-rows: auto auto auto auto;
         grid-template-areas:
             "bar"
+            "gestures"
             "screen"
-            "controls"
             "panel";
         height: auto;
     }
@@ -1302,31 +613,18 @@
         height: min(46dvh, 420px);
     }
 
-    .tui-console__controls {
+    .tui-gestures {
+        grid-area: gestures;
+        align-self: stretch;
+    }
+
+    .tui-gestures__list {
         flex-direction: row;
         flex-wrap: wrap;
-        justify-content: center;
-        gap: 14px;
     }
 
-    .tui-controls__stack {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 14px;
-        width: auto;
-        margin: 0;
-    }
-
-    .tui-controls__meta {
-        flex-direction: row;
-        width: auto;
-        margin-top: 0;
-    }
-
-    .tui-console__vent {
-        width: 70px;
-        height: 12px;
+    .tui-gesture {
+        flex: 1 1 150px;
     }
 
     .tui-console__panel {
@@ -1360,41 +658,48 @@
 
 /* ----------------------------------------------------- overlays simplificados -- */
 
-/* Overlay de inicio (dos manos) */
+/* Overlay de inicio (dos manos). Es una indicación, no una pantalla: deja ver
+   el escenario de Tetris que hay detrás. */
 .tui-game-start-overlay {
     position: absolute;
     inset: 0;
     z-index: 100;
-    display: flex;
-    align-items: center;
+    display: none;
+    align-items: flex-start;
     justify-content: center;
-    background: rgba(10, 13, 22, 0.95);
-    backdrop-filter: blur(4px);
+    padding-top: clamp(14px, 4vh, 40px);
+    background: transparent;
+    pointer-events: none;
 }
 
 .tui-game-start-message {
+    max-width: min(720px, 80vw);
+    padding: clamp(12px, 2vh, 20px) clamp(18px, 3vw, 32px);
     text-align: center;
+    background: rgba(5, 7, 15, 0.85);
+    border: 2px solid var(--tui-lime);
+    box-shadow: 0 0 24px rgba(57, 227, 74, 0.35), inset 0 0 30px rgba(0, 0, 0, 0.8);
 }
 
 .tui-game-start-text {
-    font-size: clamp(18px, 5vw, 36px);
-    letter-spacing: 0.1em;
+    font-size: clamp(16px, 2.6vw, 28px);
+    letter-spacing: 0.12em;
     color: var(--tui-lime);
     text-shadow: 0 0 20px rgba(57, 227, 74, 0.5);
     margin: 0;
     font-weight: bold;
 }
 
-/* Overlay de pausa simplificado */
+/* Overlay de pausa simplificado: solo el texto, la pantalla la enciende el
+   atributo data-tui-screen. */
 .tui-pause {
     position: absolute;
     inset: 0;
     z-index: 90;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(10, 13, 22, 0.95);
-    backdrop-filter: blur(8px);
+    background: #05070F;
 }
 
 .tui-pause .tui-title {
@@ -1405,16 +710,21 @@
     margin: 0;
 }
 
-/* Overlay de game over simplificado */
+/* Overlay de game over simplificado: GAME OVER + indicación de dos manos. */
 .tui-over {
+    --tui-accent: var(--tui-danger);
+
     position: absolute;
     inset: 0;
     z-index: 90;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(10, 13, 22, 0.95);
-    backdrop-filter: blur(8px);
+    background: #05070F;
+}
+
+.tui-over .tui-pause__panel {
+    width: min(700px, 100%);
 }
 
 .tui-over .tui-title {
@@ -1427,7 +737,7 @@
 }
 
 .tui-over__hint {
-    font-size: clamp(14px, 3vw, 20px);
+    font-size: clamp(14px, 2.2vw, 18px);
     letter-spacing: 0.1em;
     color: var(--tui-ink);
     text-shadow: 0 0 10px rgba(57, 227, 74, 0.3);
@@ -1439,6 +749,86 @@
     background: transparent;
     border: none;
     box-shadow: none;
+}
+
+/* ------------------------------------- indicador del siguiente escenario ---- */
+/* Recuadro discreto en la esquina inferior izquierda de la carcasa. Solo
+   informa: no recibe clics ni gestos y no tapa el área de juego. */
+.tui-scenario-next {
+    --tui-thumb: none;
+
+    position: absolute;
+    left: clamp(10px, 1.4vw, 20px);
+    bottom: clamp(10px, 1.4vw, 20px);
+    z-index: 5;
+    width: clamp(92px, 11vw, 132px);
+    padding: 6px;
+    pointer-events: none;
+    text-align: center;
+    background: rgba(5, 7, 15, 0.82);
+    border: 1px solid rgba(47, 85, 245, 0.45);
+    box-shadow: 0 0 16px rgba(0, 0, 0, 0.65);
+}
+
+.tui-scenario-next__label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 8px;
+    letter-spacing: 0.24em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-scenario-next__preview {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background-color: #0A0D16;
+    background-image:
+        linear-gradient(rgba(5, 7, 15, 0.25), rgba(5, 7, 15, 0.55)),
+        var(--tui-thumb);
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat, no-repeat;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.tui-scenario-next__name {
+    display: block;
+    margin-top: 4px;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    color: var(--tui-accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tui-scenario-next[data-tui-scenario-id="catedral"] {
+    --tui-thumb: url("Catedral.png");
+}
+
+.tui-scenario-next[data-tui-scenario-id="puente-roto"] {
+    --tui-thumb: url("Puente%20Roto.png");
+}
+
+.tui-scenario-next[data-tui-scenario-id="santa-ana"] {
+    --tui-thumb: url("Santa%20Ana.png");
+}
+
+.tui-scenario-next[data-tui-scenario-id="tranvia"] {
+    --tui-thumb: url("Tranv%C3%ADa.png");
+}
+
+/* En pantallas angostas la carcasa es más alta que la ventana: el indicador
+   se ancla a la esquina de la ventana para no quedar fuera de vista. */
+@media (max-width: 900px) {
+    .tui-scenario-next {
+        position: fixed;
+        left: 8px;
+        bottom: 8px;
+        z-index: 60;
+        width: 92px;
+    }
 }
 
 /* ------------------------------------------------------------ base global -- */

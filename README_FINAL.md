@@ -38,14 +38,17 @@ Muestra **DOS MANOS** frente a la cámara → Partida inicia
 
 ### 🕹️ **DURANTE EL JUEGO**
 
+El panel del lateral izquierdo muestra el icono de cada gesto, su acción, y se ilumina el que está activo en ese momento.
+
 | Gesto | Acción |
 |-------|--------|
 | 🖐️ Mano abierta izquierda → Pieza se mueve izquierda |
 | 🖐️ Mano abierta derecha → Pieza se mueve derecha |
 | ✌️ Victory sign (sostén) → Pieza cae rápido |
-| 🤘 Rock sign (rápido) → Siguiente fondo |
-| 🖐️ Retira mano → **PAUSA automática** |
-| 🖐️ Vuelve a mostrar mano → **REANUDA** |
+| 👍 Pulgar arriba → Pieza rota 90° |
+| 🤘 Rock sign (rápido) → Siguiente escenario |
+| 🖐️ Retira TODAS las manos → **PAUSA automática** |
+| 🖐️ Vuelve a mostrar una mano → **REANUDA** |
 
 ### 🏁 **GAME OVER**
 Muestra **DOS MANOS** → Reinicia partida
@@ -168,10 +171,9 @@ http://localhost:8000/?debug
 | `mover:columna` | Mano abierta se mueve | `{x: 0-1, columna: 0-15}` |
 | `victoria:inicio` | Gesto victory comienza | `{mano: 'left'/'right'}` |
 | `victoria:fin` | Gesto victory termina | `{}` |
-| `dos:manos` | 2 manos detectadas | `{cantidad: 2}` |
 | `gesto:confirmado` | Gesto instantáneo | `{gesto: 'ROCK'}` |
-| `mano:detectada` | Mano reaparece | `{cantidad: N}` |
-| `mano:perdida` | Mano desaparece | `{}` |
+| `mano:detectada` | Aparece una mano | `{cantidad, lado, mano: 1/2, primera}` |
+| `mano:perdida` | Desaparece una mano | `{cantidad, lado}` |
 
 ---
 
@@ -202,20 +204,20 @@ http://localhost:8000/?debug
 NotSupportedError: AudioWorkletGlobalScope.registerProcessor: 
 Argument 1 is invalid: a class with the same name is already registered.
 ```
-✅ **Suprimido** en `index.html` - No afecta funcionamiento
+✅ **Resuelto** - Se quitó `p5.sound`: el audio usa `HTMLAudioElement` y ya no se registran AudioWorklets.
 
 ### WebGL Backend
 ```
 webgl backend was already registered. Reusing existing backend factory.
 The kernel 'XXX' for backend 'webgl' is already registered
 ```
-✅ **Normal** - TensorFlow reutiliza backend existente
+✅ **Resuelto** - Se quitó el `<script>` duplicado de `tfjs-backend-webgl`; `@tensorflow/tfjs` ya incluye ese backend.
 
 ### AudioContext
 ```
 Se ha impedido que un AudioContext se inicie automáticamente...
 ```
-✅ **Esperado** - Audio se activa después del primer gesto (seguridad del navegador)
+✅ **Ya no aplica** - No se crea ningún AudioContext. La reproducción nativa puede quedar bloqueada por el navegador y el juego sigue en silencio.
 
 Ver `TROUBLESHOOTING.md` para más detalles.
 
