@@ -754,54 +754,7 @@ const HandPose = (() => {
     return isFingerExtended(hand, [8, 6]);
   }
 
-  // Pose del puntero: índice levantado; medio, anular y meñique doblados.
-  // El pulgar se ignora para que pueda juntarse con el índice y hacer clic.
-  function isPointerPose(hand) {
-    if (!isIndexExtended(hand)) return false;
-    if (isFingerExtended(hand, [12, 10])) return false;
-    if (isFingerExtended(hand, [16, 14])) return false;
-    if (isFingerExtended(hand, [20, 18])) return false;
-    return true;
-  }
 
-  // Pulgar realmente levantado: extendido, por encima de su base y lejos de
-  // las articulaciones de los otros dedos. Un pulgar envuelto en el puño no
-  // cumple la distancia y deja que la pausa tenga prioridad.
-  function isThumbUp(hand) {
-    if (!isThumbExtended(hand)) return false;
-
-    const tip = hand.landmarks[4];
-    const base = hand.landmarks[2];
-    if (!tip || !base) return false;
-
-    // La punta del pulgar debe quedar por encima de su base (Y menor).
-    if (tip[1] >= base[1]) return false;
-
-    const fingerMids = [6, 10, 14, 18]
-      .map((index) => hand.landmarks[index])
-      .filter(Boolean);
-
-    const nearFinger = fingerMids.some(
-      (point) => distance(tip, point) < CONFIG.THUMB_FINGER_PROXIMITY_THRESHOLD
-    );
-
-    return !nearFinger;
-  }
-
-  // Clic del puntero: la punta del pulgar toca la punta del índice.
-  // Se usan los landmarks crudos para que el clic sea inmediato y no espere
-  // al suavizado del resto de la mano.
-  function isThumbIndexPinching(hand) {
-    const landmarks = hand.landmarksRaw || hand.landmarks;
-    if (!landmarks) return false;
-
-    const thumbTip = landmarks[4];
-    const indexTip = landmarks[8];
-
-    if (!thumbTip || !indexTip) return false;
-
-    return distance(thumbTip, indexTip) < CONFIG.THUMB_INDEX_PINCH_THRESHOLD;
-  }
 
   // Contar dedos extendidos (0-5)
   function countExtendedFingers(hand) {
