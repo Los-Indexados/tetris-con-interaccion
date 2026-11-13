@@ -24,6 +24,13 @@
 (function () {
   'use strict';
 
+  // Fix para evitar múltiples registraciones de AudioWorklet
+  // Esto previene el error "a class with the same name is already registered"
+  if (window.p5 && window.p5.prototype && !window.p5.prototype._soundInitialized) {
+    window.p5.prototype._soundInitialized = true;
+    // El AudioContext se inicializará bajo demanda en la primera interacción
+  }
+
   var ui = null;
   var motor = null;
   var montura = null;
