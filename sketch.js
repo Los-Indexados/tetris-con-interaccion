@@ -272,7 +272,11 @@
   var CAIDA_ACELERADA_MS = 70;
   var caidaAceleradaActiva = false;
   var controlDownPresionado = false;
-  var pulgarArribaResumeLatch = false;
+
+  // Control de fondos (4 escenarios)
+  var backgroundIndex = 0;
+  var BACKGROUNDS = ['catedral', 'puente-roto', 'santa-ana', 'tranvia'];
+  var rockGestureCooldown = 0;
 
   /* La cámara llega en espejo (driver o "Mirror my camera" del sistema).
      style.css invierte la imagen del visor y acá se compensan las coordenadas
@@ -368,79 +372,67 @@
       objetivoMano = columnaVisible(columna) / (COLUMNAS - 1);
     });
 
-    hp.on('rotarHorario', function () {
-      if (pulgarArribaResumeLatch || ui.getScreen() !== 'game') return;
-      destello('control-a');
-      accion(function () { motor.rotar(); });
-    });
-    hp.on('rotarAntihorario', function () {
-      if (pulgarArribaResumeLatch || ui.getScreen() !== 'game') return;
-      destello('control-b');
-      accion(function () { motor.rotarIzquierda(); });
-    });
-
-    /* Puño: pausa por transición. Mantener el puño no repite. Para reanudar
-       se usa el pulgar levantado, no otro puño. */
-    hp.on('pausar', function () {
-      if (ui.getScreen() !== 'game') return;
-      destello('pause', 260);
-      ui.trigger('pause');
-    });
-
-    /* Pulgar levantado: reanudar cuando la partida está en pausa.
-       El latch evita que, al mantener el pulgar después de reanudar, el
-       gesto de rotación existente empiece a girar la pieza. */
-    document.addEventListener('gesto:confirmado', function (evento) {
-      if (!evento.detail || evento.detail.gesto !== 'PULGAR_ARRIBA') return;
-      if (ui.getScreen() !== 'paused') return;
-
-      pulgarArribaResumeLatch = true;
-      destello('resume', 260);
-      ui.trigger('resume');
-    });
-
-    document.addEventListener('gesto:perdido', function (evento) {
-      if (evento.detail && evento.detail.gesto === 'PULGAR_ARRIBA') {
-        pulgarArribaResumeLatch = false;
-      }
-    });
-
-    // Refuerzo: si el gesto del pulgar cambia directamente a otro gesto
-    // reconocido, el latch también debe liberarse. Algunos emisores pueden
-    // informar el gesto nuevo con "gesto:detectado" sin "gesto:perdido".
-    document.addEventListener('gesto:detectado', function (evento) {
-      if (!evento.detail || evento.detail.gesto === 'PULGAR_ARRIBA') return;
-      pulgarArribaResumeLatch = false;
-    });
+    /* Victoria: único gesto de caída acelerada (▼ queda iluminado). */
 
     /* Victoria: único gesto de caída acelerada (▼ queda iluminado). */
-    hp.on('caidaAceleradaInicio', function () {
+    document.addEventListener('victoria:inicio', function (evento) {
       if (ui.getScreen() !== 'game' || !motor.estaActivo()) return;
       caidaAceleradaActiva = true;
       actualizarCaidaAcelerada();
     });
-    hp.on('caidaAceleradaFin', function () {
+    document.addEventListener('victoria:fin', function (evento) {
       caidaAceleradaActiva = false;
       actualizarCaidaAcelerada();
     });
 
-    /* Cursor: mueve el puntero y activa el botón que quede debajo.
-       Nunca durante la partida activa: ahí los gestos controlan el Tetris. */
-    hp.on('cursorMover', function (datos) {
-      if (ui.getScreen() === 'game') return;
-      ui.moveCursor(espejoX(datos.x), datos.y);
-    });
-    hp.on('cursorClick', function (datos) {
-      if (ui.getScreen() === 'game') return;
-      ui.clickAt(espejoX(datos.x), datos.y);
+    /* DOS MANOS: iniciar o reiniciar partida (tanto en pantalla de inicio como en game over) */
+    document.addEventListener('dos:manos', function (evento) {
+      var screen = ui.getScreen();
+      if (screen === 'start' || screen === 'over') {
+        destello('start-game', 260);
+        ui.trigger('start');
+      } else if (screen === 'game' && motor.gameOver) {
+        destello('restart', 260);
+        ui.trigger('restart');
+      }
     });
 
-    document.addEventListener('cursor:mostrar', function (evento) {
-      if (ui.getScreen() === 'game') return;
-      if (evento.detail) ui.moveCursor(espejoX(evento.detail.x), evento.detail.y);
+    /* ROCK: cambiar fondo (ciclo de 4 fondos) */
+    document.addEventListener('gesto:confirmado', function (evento) {
+      if (!evento.detail || evento.detail.gesto !== 'ROCK') return;
+      
+      var now = Date.now();
+      if (now < rockGestureCooldown) return; // Evitar spam
+      rockGestureCooldown = now + 300; // Cooldown de 300ms
+      
+      backgroundIndex = (backgroundIndex + 1) % BACKGROUNDS.length;
+      var bgId = BACKGROUNDS[backgroundIndex];
+      
+      if (ui.setScenario && typeof ui.setScenario === 'function') {
+        ui.setScenario(bgId);
+      }
+      
+      if (typeof console !== 'undefined' && console.log) {
+        console.log('🎨 Fondo cambiado a: ' + bgId);
+      }
     });
-    document.addEventListener('cursor:ocultar', function () {
-      ui.hideCursor();
+
+    /* SIN MANOS: pausa automática */
+    document.addEventListener('mano:perdida', function (evento) {
+      if (ui.getScreen() !== 'game') return;
+      if (motor && motor.estaActivo() && !motor.pausado) {
+        destello('pause', 260);
+        ui.trigger('pause');
+      }
+    });
+
+    /* Reanudar cuando vuelve una mano durante la pausa */
+    document.addEventListener('mano:detectada', function (evento) {
+      if (ui.getScreen() !== 'paused') return;
+      if (motor && motor.pausado) {
+        destello('resume', 260);
+        ui.trigger('resume');
+      }
     });
 
     /* El módulo distingue navegación de menú y de juego. */
@@ -496,14 +488,6 @@
 
     var hp = window.HandPose;
     if (!hp || !hp.estado) return;
-
-    // Con dos manos se pausa el movimiento horizontal. La caída acelerada
-    // queda reservada exclusivamente al gesto de victoria.
-    var hpConfig = hp.config || {};
-    if (hpConfig.MOVEMENT_PAUSE_ON_DOUBLE_HAND !== false && hp.estado.cantidadManos >= 2) {
-      direccionMano = 0;
-      return;
-    }
 
     var gesto = hp.estado.gesto;
 

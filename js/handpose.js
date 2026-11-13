@@ -58,10 +58,10 @@ const CONFIG = {
   PAUSE_GESTURE_COOLDOWN_MS: 500, // Evita dobles toggles por parpadeo del detector
 
   // Gestos instantáneos (sin hold, solo cooldown corto)
-  GESTURES_INSTANT: ['PULGAR_ARRIBA', 'PULGAR_IZQUIERDA'],
+  GESTURES_INSTANT: ['ROCK'],
 
   // Gestos continuos (sin hold, se activan mientras duren)
-  GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'ÍNDICE_LEVANTADO', 'VICTORIA'],
+  GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'VICTORIA'],
 
   // Control horizontal absoluto con mano abierta.
   // La posición de la palma se mapea al ancho completo de la cuadrícula:
@@ -111,10 +111,6 @@ const HandPose = (() => {
       owner: null, // Mano dueña del gesto ("left" o "right")
       ignored: null, // Mano ignorada por conflicto
       lastUpdate: 0, // Timestamp del último gesto
-      lastPunoTime: 0, // Última transición a PUÑO confirmada (cooldown)
-      pointer: false, // ¿Hay una mano con el índice levantado?
-      pointerHand: null, // Lado de la mano que controla el puntero
-      pinching: false, // ¿El pulgar toca el índice en la mano del puntero?
     },
     hold: {
       active: false, // Si hay un hold en curso
@@ -371,9 +367,6 @@ const HandPose = (() => {
       state.gestures.current = null;
       state.gestures.owner = null;
       state.gestures.ignored = null;
-      state.gestures.pointer = false;
-      state.gestures.pointerHand = null;
-      state.gestures.pinching = false;
 
       resetMovementTracking(state);
       state.movement.controlHand = null;
@@ -859,9 +852,10 @@ const HandPose = (() => {
       return 'VICTORIA';
     }
 
-    // ÍNDICE_LEVANTADO (puntero): solo índice; pulgar libre para el clic.
-    if (isPointerPose(hand)) {
-      return 'ÍNDICE_LEVANTADO';
+    // ROCK (índice, meñique y pulgar levantados; medio y anular doblados)
+    const thumbUp = isThumbExtended(hand);
+    if (indexUp && thumbUp && !middleUp && !ringUp && pinkyUp) {
+      return 'ROCK';
     }
 
     return null; // Gesto no reconocido
@@ -999,24 +993,6 @@ const HandPose = (() => {
     state.gestures.owner = gestureOwner;
     state.gestures.ignored = ignoredHand;
     state.gestures.lastUpdate = currentTime;
-
-    // Puntero: mano con el índice levantado. Se busca la mano dueña si el
-    // gesto actual es el puntero; si no, cualquier mano en pose de puntero.
-    let pointerHand = null;
-
-    if (detectedGesture === 'ÍNDICE_LEVANTADO' && gestureOwner) {
-      pointerHand = hands.find(
-        (hand) => hand.side.toLowerCase() === gestureOwner
-      ) || null;
-    }
-
-    if (!pointerHand) {
-      pointerHand = hands.find(isPointerPose) || null;
-    }
-
-    state.gestures.pointer = !!pointerHand;
-    state.gestures.pointerHand = pointerHand ? pointerHand.side.toLowerCase() : null;
-    state.gestures.pinching = pointerHand ? isThumbIndexPinching(pointerHand) : false;
 
     // Log en DEBUG
     if (CONFIG.DEBUG && detectedGesture) {
@@ -1576,27 +1552,6 @@ function updateEventState(state) {
     eventState.lastGesture = state.gestures.current;
   }
 
-  // PUÑO: pausa/reanudar por TRANSICIÓN (flanco de subida).
-  // Mantener el puño cerrado no repite la acción: solo se confirma cuando el
-  // gesto aparece después de haber estado ausente. El cooldown protege de
-  // parpadeos de un frame del detector.
-  if (
-    state.gestures.current === 'PUÑO' &&
-    previousGesture !== 'PUÑO' &&
-    now - state.gestures.lastPunoTime >= CONFIG.PAUSE_GESTURE_COOLDOWN_MS
-  ) {
-    state.gestures.lastPunoTime = now;
-    HandPose.emitEvent('gesto:confirmado', {
-      gesto: 'PUÑO',
-      manoDuena: state.gestures.owner,
-      timestamp: now,
-      transicion: true,
-    });
-    if (CONFIG.DEBUG) {
-      console.log('✊ PUÑO: acción por transición');
-    }
-  }
-
   // VICTORIA: caída acelerada continua mientras el gesto se mantiene.
   // inicio solo en partida; fin siempre para liberar el estado del consumidor.
   if (
@@ -1664,73 +1619,21 @@ function updateEventState(state) {
     eventState.lastHandCount = state.detection.hands.length;
   }
 
-  // PUNTERO (índice levantado). Solo fuera de la partida activa: en juego
-  // los gestos controlan exclusivamente el Tetris y el cursor no aparece.
-  let pointerHand = null;
-  if (state.gestures.pointer && state.gestures.pointerHand) {
-    pointerHand = state.detection.hands.find(
-      (hand) => hand.side.toLowerCase() === state.gestures.pointerHand
-    ) || null;
-  }
-
-  const pointerActive = state.ui.mode !== 'juego' && !!pointerHand;
-
-  if (pointerHand) {
-    const indexTip =
-      (pointerHand.landmarks && pointerHand.landmarks[8]) ||
-      pointerHand.palmCenter;
-
-    if (indexTip) {
-      state.ui.cursorX = indexTip[0];
-      state.ui.cursorY = indexTip[1];
+  // DOS MANOS: iniciar o reiniciar partida
+  if (state.detection.hands.length === 2 && eventState.lastHandCount !== 2) {
+    HandPose.emitEvent('dos:manos', {
+      cantidad: 2,
+      timestamp: now,
+    });
+    if (CONFIG.DEBUG) {
+      console.log('👐 DOS MANOS: iniciar/reiniciar partida');
     }
   }
 
-  // CURSOR: MOSTRAR / OCULTAR
-  if (pointerActive && !eventState.lastCursorVisible) {
-    state.ui.cursorVisible = true;
-    HandPose.emitEvent('cursor:mostrar', {
-      x: state.ui.cursorX,
-      y: state.ui.cursorY,
-      mano: pointerHand.side,
-      timestamp: now,
-    });
-    eventState.lastCursorVisible = true;
-    // Si el usuario ya venía haciendo pinch, no disparar un clic por aparecer:
-    // el clic requiere una presión nueva estando el puntero visible.
-    eventState.lastPinching = state.gestures.pinching;
-  } else if (!pointerActive && eventState.lastCursorVisible) {
-    state.ui.cursorVisible = false;
-    HandPose.emitEvent('cursor:ocultar', {
-      timestamp: now,
-    });
-    eventState.lastCursorVisible = false;
-    eventState.lastPinching = false;
-  }
+  // ROCK: cambio de fondo (gesto instantáneo confirmado por el sistema)
+  // Se emite automáticamente cuando el gesto es detectado y confirmado
+  // por el mecanismo de gestos instantáneos en processGesturesWithHold
 
-  // CURSOR: MOVER (el puntero sigue la punta del índice)
-  if (pointerActive) {
-    HandPose.emitEvent('cursor:mover', {
-      x: state.ui.cursorX,
-      y: state.ui.cursorY,
-      timestamp: now,
-    });
-  }
-
-  // CURSOR: CLICK — una sola vez por cada presión (flanco de subida del pinch).
-  if (pointerActive) {
-    if (state.gestures.pinching && !eventState.lastPinching) {
-      HandPose.emitEvent('cursor:click', {
-        x: state.ui.cursorX,
-        y: state.ui.cursorY,
-        mano: pointerHand.side,
-        timestamp: now,
-      });
-    }
-    eventState.lastPinching = state.gestures.pinching;
-  } else {
-    eventState.lastPinching = false;
-  }
 }
 
 // =========================================================================
