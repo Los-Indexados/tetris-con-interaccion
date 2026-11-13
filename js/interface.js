@@ -73,8 +73,9 @@
   ];
 
   var state = {
-    screen: 'start',
-    scenario: SCENARIOS[0].id
+    screen: 'game',  // Comienza directamente en el juego
+    scenario: SCENARIOS[0].id,
+    gameStarted: false  // Pero el juego no está iniciado hasta que se muestren dos manos
   };
 
   var root = null;
@@ -146,40 +147,19 @@
   /* ---------------------------------------------------------------- screens */
 
   function buildStart() {
+    // El "inicio" es solo una capa sobre el juego con la indicación de dos manos
     var section = el('section', 'tui-screen tui-screen--start');
     section.setAttribute('aria-label', 'Pantalla de inicio');
 
-    var deco = el('div', 'tui-deco');
-    deco.setAttribute('aria-hidden', 'true');
-    for (var i = 0; i < 8; i++) deco.appendChild(el('span', 'tui-deco__cell'));
-    section.appendChild(deco);
-
-    var inner = el('div', 'tui-start');
-    inner.appendChild(el('p', 'tui-kicker', 'Arcade · 1 jugador'));
-
-    var logo = el('h1', 'tui-logo');
-    var word = el('span', 'tui-logo__word');
-    'TETRIS'.split('').forEach(function (letter) {
-      word.appendChild(el('span', 'tui-logo__letter', letter));
-    });
-    logo.appendChild(word);
-    logo.appendChild(el('span', 'tui-logo__sub', 'Con interacción'));
-    inner.appendChild(logo);
-
-    var actions = el('div', 'tui-start__actions');
-    actions.appendChild(actionButton('Iniciar partida', 'start', 'primary', 'start-game'));
-    actions.appendChild(actionButton('Seleccionar escenario', 'scenarios', 'ghost', 'open-scenarios'));
-    inner.appendChild(actions);
-
-    var hints = el('div', 'tui-start__hints');
-    hints.appendChild(el('p', 'tui-start__hint', '👐 Mano abierta para desplazarse'));
-    hints.appendChild(el('p', 'tui-start__hint', '✌️ Victory sign para acelerar'));
-    hints.appendChild(el('p', 'tui-start__hint', '🤘 Rock para cambiar fondo'));
-    hints.appendChild(el('p', 'tui-start__hint', '👐👐 Dos manos para comenzar'));
-    hints.appendChild(el('p', 'tui-start__hint', '🖐️ Sin manos = pausa'));
-    inner.appendChild(hints);
-
-    section.appendChild(inner);
+    var overlay = el('div', 'tui-start-overlay');
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    
+    var message = el('div', 'tui-start-message');
+    message.appendChild(el('p', 'tui-start-text', 'Coloca las dos manos para comenzar'));
+    overlay.appendChild(message);
+    
+    section.appendChild(overlay);
     return section;
   }
 
@@ -200,27 +180,10 @@
   }
 
   function buildScenarios() {
+    // Pantalla vacía - no se mostrará
     var section = el('section', 'tui-screen tui-screen--scenarios');
     section.setAttribute('aria-label', 'Selección de escenario');
-
-    var inner = el('div', 'tui-select');
-    inner.appendChild(el('p', 'tui-kicker', 'Selección'));
-    inner.appendChild(el('h2', 'tui-title', 'Elegí tu escenario'));
-
-    var grid = el('div', 'tui-scenarios');
-    grid.setAttribute('role', 'group');
-    grid.setAttribute('aria-label', 'Escenarios disponibles');
-    SCENARIOS.forEach(function (scenario) {
-      grid.appendChild(scenarioCard(scenario));
-    });
-    inner.appendChild(grid);
-
-    var actions = el('div', 'tui-select__actions');
-    actions.appendChild(actionButton('Regresar', 'back', 'ghost', 'back-menu'));
-    actions.appendChild(actionButton('Confirmar', 'confirm', 'primary', 'confirm-scenario'));
-    inner.appendChild(actions);
-
-    section.appendChild(inner);
+    section.style.display = 'none';
     return section;
   }
 
@@ -285,106 +248,51 @@
 
     consoleBox.appendChild(panel);
 
-    /* Panel de controles: columna izquierda, orden vertical
-       PAUSA → cruceta → A/B. No ejecuta lógica de juego: cada control emite
-       tui:control:<id>. */
-    var controls = el('aside', 'tui-console__controls');
-    controls.setAttribute('data-tui-controls', '');
-    controls.setAttribute('aria-label', 'Controles');
-
-    var stack = el('div', 'tui-controls__stack');
-    stack.appendChild(actionButton('Pausa', 'pause', 'start', 'pause'));
-
-    var padShell = el('div', 'tui-pad-shell');
-    var pad = el('div', 'tui-pad');
-    pad.setAttribute('role', 'group');
-    pad.setAttribute('aria-label', 'Cruceta');
-    pad.appendChild(controlButton('up', '▲', 'tui-pad__btn tui-pad__btn--up', 'control-up', 'Arriba'));
-    pad.appendChild(controlButton('left', '◀', 'tui-pad__btn tui-pad__btn--left', 'control-left', 'Izquierda'));
-    var hub = el('span', 'tui-pad__hub');
-    hub.setAttribute('aria-hidden', 'true');
-    pad.appendChild(hub);
-    pad.appendChild(controlButton('right', '▶', 'tui-pad__btn tui-pad__btn--right', 'control-right', 'Derecha'));
-    pad.appendChild(controlButton('down', '▼', 'tui-pad__btn tui-pad__btn--down', 'control-down', 'Abajo'));
-    padShell.appendChild(pad);
-
-    var padBase = el('div', 'tui-pad-base');
-    padBase.appendChild(padShell);
-    stack.appendChild(padBase);
-
-    var actions = el('div', 'tui-controls__actions');
-    actions.appendChild(controlButton('b', 'B', 'tui-btn--round', 'control-b', 'Botón B'));
-    actions.appendChild(controlButton('a', 'A', 'tui-btn--round', 'control-a', 'Botón A'));
-    stack.appendChild(actions);
-
-    controls.appendChild(stack);
-
-    var meta = el('div', 'tui-controls__meta');
-    meta.appendChild(el('span', 'tui-console__vent'));
-    meta.appendChild(el('span', 'tui-console__led'));
-    meta.appendChild(el('span', 'tui-console__base-label', 'P1'));
-    controls.appendChild(meta);
-
-    consoleBox.appendChild(controls);
+    /* Panel de controles eliminado - Todo controlado por gestos */
 
     section.appendChild(consoleBox);
+    
+    /* Overlay de inicio (mostrar hasta que se detecten dos manos) */
+    var startOverlay = el('div', 'tui-game-start-overlay');
+    startOverlay.setAttribute('data-tui-start-overlay', '');
+    startOverlay.setAttribute('role', 'status');
+    startOverlay.setAttribute('aria-live', 'polite');
+    var startMessage = el('div', 'tui-game-start-message');
+    startMessage.appendChild(el('p', 'tui-game-start-text', 'Coloca las dos manos para comenzar'));
+    startOverlay.appendChild(startMessage);
+    section.appendChild(startOverlay);
+    
     return section;
   }
 
   function buildPause() {
     var overlay = el('div', 'tui-pause');
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-labelledby', 'tui-pause-title');
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
 
     var panel = el('div', 'tui-pause__panel');
-    panel.appendChild(el('p', 'tui-kicker', 'Sistema'));
-
-    var title = el('h2', 'tui-title', 'Pausa');
+    
+    var title = el('h2', 'tui-title', 'PAUSA');
     title.id = 'tui-pause-title';
     panel.appendChild(title);
-
-    panel.appendChild(el('p', 'tui-pause__hint', 'Juego en pausa'));
-
-    var actions = el('div', 'tui-pause__actions');
-    actions.appendChild(actionButton('Continuar', 'resume', 'primary', 'resume'));
-    actions.appendChild(actionButton('Reiniciar', 'restart', 'ghost', 'restart'));
-    actions.appendChild(actionButton('Cambiar escenario', 'scenarios', 'ghost', 'pause-scenarios'));
-    actions.appendChild(actionButton('Menú principal', 'menu', 'ghost', 'menu'));
-    panel.appendChild(actions);
 
     overlay.appendChild(panel);
     return overlay;
   }
 
-  /* Pantalla de fin de partida: mismo lenguaje que la pausa, sin "Continuar". */
+  /* Pantalla de fin de partida: solo texto GAME OVER e indicación de dos manos */
   function buildOver() {
     var overlay = el('div', 'tui-over');
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-labelledby', 'tui-over-title');
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
 
     var panel = el('div', 'tui-pause__panel');
-    panel.appendChild(el('p', 'tui-kicker', 'Sistema'));
-
-    var title = el('h2', 'tui-title', 'Game over');
+    
+    var title = el('h2', 'tui-title', 'GAME OVER');
     title.id = 'tui-over-title';
     panel.appendChild(title);
 
-    panel.appendChild(el('p', 'tui-pause__hint', 'Partida terminada'));
-
-    var score = el('div', 'tui-over__score');
-    score.appendChild(el('span', 'tui-over__score-label', 'Puntuación final'));
-    var scoreValue = el('span', 'tui-over__score-value', '000000');
-    scoreValue.setAttribute('data-tui-final-score', '');
-    score.appendChild(scoreValue);
-    panel.appendChild(score);
-
-    var actions = el('div', 'tui-pause__actions');
-    actions.appendChild(actionButton('Reiniciar', 'restart', 'primary', 'over-restart'));
-    actions.appendChild(actionButton('Cambiar escenario', 'scenarios', 'ghost', 'over-scenarios'));
-    actions.appendChild(actionButton('Menú principal', 'menu', 'ghost', 'over-menu'));
-    panel.appendChild(actions);
+    panel.appendChild(el('p', 'tui-over__hint', 'Coloca las dos manos para volver a comenzar'));
 
     overlay.appendChild(panel);
     return overlay;

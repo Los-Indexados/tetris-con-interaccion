@@ -1358,6 +1358,89 @@
     }
 }
 
+/* ----------------------------------------------------- overlays simplificados -- */
+
+/* Overlay de inicio (dos manos) */
+.tui-game-start-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10, 13, 22, 0.95);
+    backdrop-filter: blur(4px);
+}
+
+.tui-game-start-message {
+    text-align: center;
+}
+
+.tui-game-start-text {
+    font-size: clamp(18px, 5vw, 36px);
+    letter-spacing: 0.1em;
+    color: var(--tui-lime);
+    text-shadow: 0 0 20px rgba(57, 227, 74, 0.5);
+    margin: 0;
+    font-weight: bold;
+}
+
+/* Overlay de pausa simplificado */
+.tui-pause {
+    position: absolute;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10, 13, 22, 0.95);
+    backdrop-filter: blur(8px);
+}
+
+.tui-pause .tui-title {
+    font-size: clamp(36px, 8vw, 56px);
+    letter-spacing: 0.2em;
+    color: var(--tui-lime);
+    text-shadow: 0 0 30px rgba(57, 227, 74, 0.6);
+    margin: 0;
+}
+
+/* Overlay de game over simplificado */
+.tui-over {
+    position: absolute;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10, 13, 22, 0.95);
+    backdrop-filter: blur(8px);
+}
+
+.tui-over .tui-title {
+    font-size: clamp(36px, 8vw, 56px);
+    letter-spacing: 0.2em;
+    color: var(--tui-danger);
+    text-shadow: 0 0 30px rgba(255, 77, 109, 0.6);
+    margin: 0;
+    margin-bottom: 20px;
+}
+
+.tui-over__hint {
+    font-size: clamp(14px, 3vw, 20px);
+    letter-spacing: 0.1em;
+    color: var(--tui-ink);
+    text-shadow: 0 0 10px rgba(57, 227, 74, 0.3);
+    margin: 0;
+}
+
+.tui-pause__panel {
+    text-align: center;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
 /* ------------------------------------------------------------ base global -- */
 
 /* Lo unico global de la hoja: el lienzo ocupa la ventana entera.

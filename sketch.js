@@ -386,15 +386,25 @@
       actualizarCaidaAcelerada();
     });
 
-    /* DOS MANOS: iniciar o reiniciar partida (tanto en pantalla de inicio como en game over) */
+    /* DOS MANOS: iniciar o reiniciar partida */
     document.addEventListener('dos:manos', function (evento) {
       var screen = ui.getScreen();
-      if (screen === 'start' || screen === 'over') {
-        destello('start-game', 260);
-        ui.trigger('start');
-      } else if (screen === 'game' && motor.gameOver) {
-        destello('restart', 260);
-        ui.trigger('restart');
+      
+      // En game screen sin juego activo (inicio) → comenzar
+      if (screen === 'game' && !motor.estaActivo() && !motor.gameOver) {
+        // Ocultar overlay de inicio
+        var startOverlay = document.querySelector('[data-tui-start-overlay]');
+        if (startOverlay) startOverlay.style.display = 'none';
+        
+        // Iniciar juego
+        motor.reiniciar();
+        return;
+      }
+      
+      // En game over → reiniciar
+      if (screen === 'game' && motor.gameOver) {
+        motor.reiniciar();
+        return;
       }
     });
 
@@ -418,20 +428,25 @@
       }
     });
 
-    /* SIN MANOS: pausa automática */
+    /* SIN MANOS: pausa automática (solo si se pierden TODAS las manos) */
     document.addEventListener('mano:perdida', function (evento) {
+      // mano:perdida se emite cuando la cantidad de manos baja
+      // Solo pausar si estamos en juego y el juego está activo
       if (ui.getScreen() !== 'game') return;
       if (motor && motor.estaActivo() && !motor.pausado) {
-        destello('pause', 260);
+        // Verificar que sea realmente sin manos (cantidad = 0)
+        if (evento.detail && evento.detail.cantidad !== undefined && evento.detail.cantidad > 0) {
+          return; // Aún hay manos, no pausar
+        }
         ui.trigger('pause');
       }
     });
 
-    /* Reanudar cuando vuelve una mano durante la pausa */
+    /* Reanudar cuando reaparece una mano durante la pausa */
     document.addEventListener('mano:detectada', function (evento) {
+      // mano:detectada se emite cuando aparece una mano
       if (ui.getScreen() !== 'paused') return;
       if (motor && motor.pausado) {
-        destello('resume', 260);
         ui.trigger('resume');
       }
     });
