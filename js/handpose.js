@@ -754,6 +754,30 @@ const HandPose = (() => {
     return isFingerExtended(hand, [8, 6]);
   }
 
+  // Pulgar realmente levantado: extendido, por encima de su base y lejos de
+  // las articulaciones de los otros dedos. Un pulgar envuelto en el puño no
+  // cumple la distancia y deja que la pausa tenga prioridad.
+  function isThumbUp(hand) {
+    if (!isThumbExtended(hand)) return false;
+
+    const tip = hand.landmarks[4];
+    const base = hand.landmarks[2];
+    if (!tip || !base) return false;
+
+    // La punta del pulgar debe quedar por encima de su base (Y menor).
+    if (tip[1] >= base[1]) return false;
+
+    const fingerMids = [6, 10, 14, 18]
+      .map((index) => hand.landmarks[index])
+      .filter(Boolean);
+
+    const nearFinger = fingerMids.some(
+      (point) => distance(tip, point) < CONFIG.THUMB_FINGER_PROXIMITY_THRESHOLD
+    );
+
+    return !nearFinger;
+  }
+
 
 
   // Contar dedos extendidos (0-5)
