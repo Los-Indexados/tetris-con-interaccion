@@ -25,7 +25,7 @@ Un Tetris **100% controlado por gestos** usando detección de manos en tiempo re
 ✅ **5 gestos intuitivos** - Fáciles de aprender y recordar  
 ✅ **Sin botones, sin teclado** - Solo las manos controlan  
 ✅ **4 escenarios** - Catedral, Puente Roto, Santa Ana, Tranvía  
-✅ **Audio tema** - Música y efectos (activados por gesto)  
+✅ **Audio tema** - Música y efectos; a los 500 puntos suena `tetris-500.mp3` desde el segundo 33 con crossfade y glitch de pantalla  
 ✅ **Debug mode** - Visualización de landmarks (?debug)  
 ✅ **Pausa automática** - Sin manos = pausa  
 

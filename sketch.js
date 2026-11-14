@@ -40,6 +40,9 @@
   var siguienteMostrada = null;
   var finMostrado = false;
 
+  var PUNTAJE_GLITCH = 500;
+  var DURACION_GLITCH_MS = 2400;
+
   /* ---------------------------------------------------------------- medición */
 
   function medir() {
@@ -123,8 +126,16 @@
 
   function sincronizarPuntaje() {
     if (!motor || motor.puntaje === puntajeMostrado) return;
+
+    var anterior = puntajeMostrado;
     puntajeMostrado = motor.puntaje;
     ui.setStats({ score: motor.puntaje });
+
+    if (anterior < PUNTAJE_GLITCH && motor.puntaje >= PUNTAJE_GLITCH) {
+      ui.glitch(DURACION_GLITCH_MS);
+    }
+
+    actualizarMusicaPorPuntaje();
   }
 
   function pintarMini(pieza, grid) {
@@ -204,6 +215,7 @@
     reiniciarMarcadores();
     cancelarCaidaAcelerada();
     objetivoMano = null;
+    reiniciarMusica();
     ui.show('game');
     ui.pulseGesture('dos-manos');
     reanudarAudio();
@@ -462,6 +474,33 @@
     if (dx > 0) motor.moverDerecha();
     else motor.moverIzquierda();
   }
+
+  /* --------------------------------------------------- comando de prueba -- */
+
+  /* En la consola del navegador: agregarPuntos(500) suma puntos, actualiza el
+     HUD y cambia la música a tetris-500.mp3 en el acto. */
+  window.agregarPuntos = function (cantidad) {
+    if (!motor) {
+      console.warn('El juego todavía no está listo.');
+      return null;
+    }
+
+    var n = Number(cantidad);
+    if (!Number.isFinite(n)) {
+      console.warn('Uso: agregarPuntos(500)');
+      return null;
+    }
+
+    motor.puntaje += Math.trunc(n);
+    sincronizarPuntaje();
+
+    if (ui.getScreen() !== 'game') {
+      console.warn('Agregá los puntos durante una partida para escuchar la música.');
+    }
+
+    console.log('Puntaje actual:', motor.puntaje);
+    return motor.puntaje;
+  };
 
   window.setup = function () {
     ui = window.TetrisUI;

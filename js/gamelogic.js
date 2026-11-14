@@ -536,7 +536,11 @@ function accionSegunManos(pantalla, cantidadManos) {
 /* ============================================================================
    AUDIO  (reproductor nativo)
    ----------------------------------------------------------------------------
-   Archivos en la raíz del proyecto: tetris.mp3 (loop), linea.mp3, gameover.mp3.
+   Archivos en la raíz del proyecto:
+     tetris.mp3      música normal (loop)
+     tetris-500.mp3  música a partir de 500 puntos (loop, arranca en 0:33 con crossfade)
+     linea.mp3       al completar una línea
+     gameover.mp3    al perder
    Se usa HTMLAudioElement en lugar de p5.sound: no hay AudioContext ni
    AudioWorklets, así que no aparecen errores de procesadores ya registrados.
    Todo el audio es opcional: si falta un archivo o el navegador bloquea el
@@ -545,16 +549,26 @@ function accionSegunManos(pantalla, cantidadManos) {
 
 const ARCHIVOS_AUDIO = {
   musica: 'tetris.mp3',
+  musica500: 'tetris-500.mp3',
   linea: 'linea.mp3',
   gameOver: 'gameover.mp3'
 };
 
+const PUNTAJE_MUSICA_500 = 500;
+const SEGUNDO_INICIO_MUSICA_500 = 33;
+const DURACION_CAMBIO_MUSICA = 1600;
+const DURACION_ENTRADA_MUSICA = 500;
+const PASO_TRANSICION_MS = 50;
 const VOLUMEN_MUSICA = 0.35;
 const VOLUMEN_EFECTOS = 0.7;
 
 let sonidoMusica = null;
+let sonidoMusica500 = null;
 let sonidoLinea = null;
 let sonidoGameOver = null;
+let musica500Iniciada = false;
+let pistaSonando = null;
+let transicionMusica = null;
 let audioDesbloqueado = false;
 
 /**
@@ -575,63 +589,196 @@ function crearAudio(ruta, volumen, loop) {
   return audio;
 }
 
-/** Carga los tres audios sin bloquear el arranque del juego. */
+/** Carga los audios sin bloquear el arranque del juego. */
 function cargarAudios() {
   sonidoMusica = crearAudio(ARCHIVOS_AUDIO.musica, VOLUMEN_MUSICA, true);
+  sonidoMusica500 = crearAudio(ARCHIVOS_AUDIO.musica500, VOLUMEN_MUSICA, true);
   sonidoLinea = crearAudio(ARCHIVOS_AUDIO.linea, VOLUMEN_EFECTOS, false);
   sonidoGameOver = crearAudio(ARCHIVOS_AUDIO.gameOver, VOLUMEN_EFECTOS, false);
 
   instalarDesbloqueoAudio();
 }
 
+/** Puntaje actual del motor (0 si todavía no existe). */
+function puntajeActual() {
+  if (typeof window === 'undefined' || !window.juego) return 0;
+  return typeof window.juego.puntaje === 'number' ? window.juego.puntaje : 0;
+}
+
+/** Pista que corresponde: tetris-500.mp3 a partir de 500 puntos. */
+function pistaMusicalActual() {
+  if (puntajeActual() >= PUNTAJE_MUSICA_500 && sonidoMusica500) {
+    return sonidoMusica500;
+  }
+  return sonidoMusica;
+}
+
+/** Pausa cualquier pista que no sea la indicada (por ejemplo, al desbloquear). */
+function pausarPistasExcepto(excepto) {
+  [sonidoMusica, sonidoMusica500].forEach((audio) => {
+    if (audio && audio !== excepto && !audio.paused) audio.pause();
+  });
+}
+
+/** Cancela una transición de volumen en curso. */
+function detenerTransicionMusica() {
+  if (transicionMusica) {
+    window.clearInterval(transicionMusica);
+    transicionMusica = null;
+  }
+}
+
+/** Curva suave para que el volumen no cambie de golpe. */
+function curvaSuave(t) {
+  return t * t * (3 - 2 * t);
+}
+
+/** Deja preparada la pista de 500 en el segundo 33. */
+function prepararPista500(pista) {
+  if (!pista) return;
+
+  const posicionar = () => {
+    try {
+      pista.currentTime = SEGUNDO_INICIO_MUSICA_500;
+    } catch (error) {
+      /* si los metadatos no cargaron, se reintenta al cargarlos */
+    }
+  };
+
+  posicionar();
+
+  if (pista.readyState < 1 && typeof pista.addEventListener === 'function') {
+    pista.addEventListener('loadedmetadata', posicionar, { once: true });
+  }
+}
+
+/** Entra una pista con un fade-in corto (inicio o reanudación). */
+function entrarPistaConFade(pista) {
+  detenerTransicionMusica();
+  pista.volume = 0;
+  reproducir(pista);
+
+  const pasos = Math.max(1, Math.round(DURACION_ENTRADA_MUSICA / PASO_TRANSICION_MS));
+  let paso = 0;
+
+  transicionMusica = window.setInterval(() => {
+    paso++;
+    const t = Math.min(1, paso / pasos);
+    pista.volume = VOLUMEN_MUSICA * curvaSuave(t);
+
+    if (t >= 1) {
+      detenerTransicionMusica();
+      pista.volume = VOLUMEN_MUSICA;
+    }
+  }, PASO_TRANSICION_MS);
+}
+
+/** Cruza la pista saliente con la entrante (cambio al llegar a 500). */
+function cruzarPistas(saliente, entrante) {
+  detenerTransicionMusica();
+
+  const volumenSaliente = saliente.volume;
+  entrante.volume = 0;
+  reproducir(entrante);
+
+  const pasos = Math.max(1, Math.round(DURACION_CAMBIO_MUSICA / PASO_TRANSICION_MS));
+  let paso = 0;
+
+  transicionMusica = window.setInterval(() => {
+    paso++;
+    const t = Math.min(1, paso / pasos);
+    const suave = curvaSuave(t);
+
+    saliente.volume = Math.max(0, volumenSaliente * (1 - suave));
+    entrante.volume = VOLUMEN_MUSICA * suave;
+
+    if (t >= 1) {
+      detenerTransicionMusica();
+      saliente.pause();
+      saliente.volume = VOLUMEN_MUSICA;
+      entrante.volume = VOLUMEN_MUSICA;
+    }
+  }, PASO_TRANSICION_MS);
+}
+
+/**
+ * Elige y arranca la pista correcta según el puntaje. Se llama al iniciar,
+ * reanudar y cada vez que cambia el puntaje. Al cruzar los 500 puntos hace un
+ * crossfade en lugar de cortar de golpe.
+ */
+function actualizarMusicaPorPuntaje() {
+  if (!musicaPermitida()) return;
+
+  const objetivo = pistaMusicalActual();
+  if (!objetivo) return;
+
+  const actual = pistaSonando;
+
+  if (objetivo === actual) {
+    if (objetivo.paused) entrarPistaConFade(objetivo);
+    return;
+  }
+
+  if (objetivo === sonidoMusica500 && !musica500Iniciada) {
+    musica500Iniciada = true;
+    prepararPista500(objetivo);
+  }
+
+  const saliente = actual && !actual.paused ? actual : null;
+
+  if (saliente) {
+    cruzarPistas(saliente, objetivo);
+  } else {
+    pausarPistasExcepto(objetivo);
+    entrarPistaConFade(objetivo);
+  }
+
+  pistaSonando = objetivo;
+}
+
+/** Reinicia ambas pistas al empezar una partida nueva. */
+function reiniciarMusica() {
+  detenerTransicionMusica();
+
+  [sonidoMusica, sonidoMusica500].forEach((audio) => {
+    if (!audio) return;
+    if (!audio.paused) audio.pause();
+    audio.currentTime = 0;
+    audio.volume = VOLUMEN_MUSICA;
+  });
+
+  pistaSonando = null;
+  musica500Iniciada = false;
+}
+
 /**
  * Los navegadores bloquean la reproducción automática: el audio no puede
  * arrancar hasta que el usuario interactúe con la página. En el primer clic,
- * tecla o toque se reproducen los tres audios a volumen 0 y se pausan; desde
- * ese momento los reproductores quedan habilitados.
+ * tecla o toque se reproducen los audios a volumen 0 y se pausan; desde ese
+ * momento los reproductores quedan habilitados.
  */
 function desbloquearAudio() {
   if (audioDesbloqueado) return;
-  if (!sonidoMusica && !sonidoLinea && !sonidoGameOver) return;
+
+  const audios = [sonidoMusica, sonidoMusica500, sonidoLinea, sonidoGameOver].filter(Boolean);
+  if (audios.length === 0) return;
 
   audioDesbloqueado = true;
 
-  if (sonidoMusica) {
-    const volumen = sonidoMusica.volume;
-    sonidoMusica.volume = 0;
-
-    const intento = sonidoMusica.play();
-    const terminar = () => {
-      sonidoMusica.volume = volumen;
-      // Si la partida no está activa, se corta en el acto.
-      if (!musicaPermitida()) {
-        sonidoMusica.pause();
-        sonidoMusica.currentTime = 0;
-      }
-    };
-
-    if (intento && typeof intento.then === 'function') {
-      intento.then(terminar).catch(() => {
-        sonidoMusica.volume = volumen;
-        audioDesbloqueado = false;
-      });
-    } else {
-      terminar();
-    }
-  }
-
-  // Los efectos usan elementos distintos: también hay que habilitarlos.
-  [sonidoLinea, sonidoGameOver].forEach((audio) => {
-    if (!audio) return;
-
+  audios.forEach((audio) => {
     const volumen = audio.volume;
     audio.volume = 0;
 
     const intento = audio.play();
     const terminar = () => {
-      audio.pause();
-      audio.currentTime = 0;
       audio.volume = volumen;
+
+      if (audio === sonidoLinea || audio === sonidoGameOver) {
+        audio.pause();
+        audio.currentTime = 0;
+      } else if (!musicaPermitida()) {
+        audio.pause();
+      }
     };
 
     if (intento && typeof intento.then === 'function') {
@@ -640,6 +787,19 @@ function desbloquearAudio() {
       terminar();
     }
   });
+
+  // Dejar las pistas en un estado conocido y arrancar la que corresponda con
+  // un fade-in (las promesas de play se resuelven antes de este timeout).
+  window.setTimeout(() => {
+    [sonidoMusica, sonidoMusica500].forEach((audio) => {
+      if (!audio) return;
+      if (!audio.paused) audio.pause();
+      audio.volume = VOLUMEN_MUSICA;
+    });
+
+    pistaSonando = null;
+    if (musicaPermitida()) actualizarMusicaPorPuntaje();
+  }, 0);
 }
 
 /** Escucha el primer gesto real del usuario para habilitar el audio. */
@@ -677,19 +837,20 @@ function musicaPermitida() {
   return true;
 }
 
-/** Arranca la música si corresponde y todavía no está sonando. */
+/** Arranca la pista que corresponda (normal o de 500) si no está sonando. */
 function intentarMusica() {
-  if (!musicaPermitida()) return;
-  if (!sonidoMusica || !sonidoMusica.paused) return;
-
-  reproducir(sonidoMusica);
+  actualizarMusicaPorPuntaje();
 }
 
 /** Pausa la música (pausa o game over). Se reanuda desde el mismo punto. */
 function detenerMusica() {
-  if (!sonidoMusica || sonidoMusica.paused) return;
+  detenerTransicionMusica();
 
-  sonidoMusica.pause();
+  [sonidoMusica, sonidoMusica500].forEach((audio) => {
+    if (!audio) return;
+    if (!audio.paused) audio.pause();
+    audio.volume = VOLUMEN_MUSICA;
+  });
 }
 
 /** Vuelve a arrancar la música y corta el efecto de game over (al reiniciar). */
@@ -703,7 +864,10 @@ function reanudarAudio() {
 
 /** ¿La música está sonando de verdad? */
 function musicaActiva() {
-  return !!(sonidoMusica && !sonidoMusica.paused);
+  return !!(
+    (sonidoMusica && !sonidoMusica.paused) ||
+    (sonidoMusica500 && !sonidoMusica500.paused)
+  );
 }
 
 /** Reproduce un efecto una vez. Si ya estaba sonando, lo reinicia. */

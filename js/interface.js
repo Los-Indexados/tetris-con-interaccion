@@ -24,6 +24,7 @@
  *   TetrisUI.getScenario()               Escenario activo
  *   TetrisUI.getNextScenario()           Siguiente escenario del ciclo
  *   TetrisUI.setStats({ score: 1200 })   Puntuación
+ *   TetrisUI.glitch(ms)                  Glitch a pantalla completa
  *   TetrisUI.setGesture(id, active)      Ilumina/apaga una fila de gestos
  *   TetrisUI.pulseGesture(id)            Destello breve de una fila
  *   TetrisUI.on(evento, fn)              Suscripción; devuelve unsubscribe
@@ -198,10 +199,14 @@
     panel.appendChild(camera);
 
     consoleBox.appendChild(panel);
-    consoleBox.appendChild(buildGestures());
 
-    /* Indicador discreto: vista previa del siguiente escenario. */
-    consoleBox.appendChild(buildNextScenario());
+    /* Columna izquierda: guía de gestos arriba y vista previa del siguiente
+       escenario abajo, ocupando el ancho completo como la cámara de la derecha. */
+    var leftColumn = el('aside', 'tui-left');
+    leftColumn.setAttribute('aria-label', 'Guía de gestos y siguiente escenario');
+    leftColumn.appendChild(buildGestures());
+    leftColumn.appendChild(buildNextScenario());
+    consoleBox.appendChild(leftColumn);
 
     section.appendChild(consoleBox);
     section.appendChild(buildReadyHint());
@@ -317,6 +322,13 @@
     return overlay;
   }
 
+  /* Velo de glitch a pantalla completa (sin interacción). */
+  function buildGlitch() {
+    var overlay = el('div', 'tui-glitch');
+    overlay.setAttribute('aria-hidden', 'true');
+    return overlay;
+  }
+
   /* ------------------------------------------------------------------ state */
 
   function syncScenarioUI() {
@@ -371,6 +383,29 @@
     }
   }
 
+  /* --------------------------------------------------------------- glitch -- */
+
+  /* Activa el glitch de pantalla completa durante unos segundos. Se usa al
+     cruzar los 500 puntos, en sincronía con el cambio de música. */
+  var glitchTimer = null;
+
+  function glitch(duration) {
+    if (!ensure()) return false;
+
+    var ms = Number(duration);
+    if (!Number.isFinite(ms) || ms <= 0) ms = 2400;
+
+    root.setAttribute('data-tui-glitch', 'true');
+
+    if (glitchTimer) window.clearTimeout(glitchTimer);
+    glitchTimer = window.setTimeout(function () {
+      glitchTimer = null;
+      root.removeAttribute('data-tui-glitch');
+    }, ms);
+
+    return true;
+  }
+
   /* ------------------------------------------------------------ gestos ----- */
 
   /* Enciende o apaga el estado iluminado de una fila (gesto sostenido o
@@ -419,6 +454,7 @@
     root.appendChild(buildGame());
     root.appendChild(buildPause());
     root.appendChild(buildOver());
+    root.appendChild(buildGlitch());
 
     var contenedor = document.getElementById('tetris-app') || document.body;
     contenedor.appendChild(root);
@@ -460,6 +496,7 @@
       return { id: siguiente.id, label: siguiente.label };
     },
     setStats: setStats,
+    glitch: glitch,
     setGesture: setGesture,
     pulseGesture: pulseGesture,
     on: on,
