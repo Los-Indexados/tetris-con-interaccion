@@ -165,8 +165,6 @@
     screenArea.appendChild(bezel);
     screenArea.appendChild(el('span', 'tui-console__tag', 'Color \u00B7 16 \u00D7 16'));
     consoleBox.appendChild(screenArea);
-    /* Indicación de inicio: se apoya sobre el área del tablero. */
-    screenArea.appendChild(buildReadyHint());
 
     /* Panel derecho: puntuación, pieza siguiente y cámara. */
     var panel = el('aside', 'tui-console__panel');
@@ -206,19 +204,36 @@
     consoleBox.appendChild(buildNextScenario());
 
     section.appendChild(consoleBox);
+    section.appendChild(buildReadyHint());
+
     return section;
   }
 
-  /* Indicación de inicio. Se apoya sobre el tablero sin taparlo. */
+  /* Indicación de inicio. Sin caja: solo oscurece el escenario y centra el
+     título, las dos manos y la instrucción. */
   function buildReadyHint() {
     var overlay = el('div', 'tui-game-start-overlay');
     overlay.setAttribute('data-tui-start-overlay', '');
     overlay.setAttribute('role', 'status');
     overlay.setAttribute('aria-live', 'polite');
 
-    var message = el('div', 'tui-game-start-message');
-    message.appendChild(el('p', 'tui-game-start-text', 'Coloca las dos manos para comenzar'));
-    overlay.appendChild(message);
+    var content = el('div', 'tui-start');
+
+    var title = el('p', 'tui-start__title');
+    ['T', 'E', 'T', 'R', 'I', 'S'].forEach(function (letra) {
+      title.appendChild(el('span', 'tui-start__letter', letra));
+    });
+    content.appendChild(title);
+
+    var hands = el('div', 'tui-start__hands');
+    hands.setAttribute('aria-hidden', 'true');
+    hands.appendChild(el('span', 'tui-start__hand', '🖐️'));
+    hands.appendChild(el('span', 'tui-start__hand tui-start__hand--right', '🖐️'));
+    content.appendChild(hands);
+
+    content.appendChild(el('p', 'tui-game-start-text', 'Coloca las dos manos para comenzar'));
+
+    overlay.appendChild(content);
 
     return overlay;
   }
@@ -287,8 +302,16 @@
     var panel = el('div', 'tui-pause__panel');
     var title = el('h2', 'tui-title', 'GAME OVER');
     title.id = 'tui-over-title';
+    title.setAttribute('data-text', 'GAME OVER');
     panel.appendChild(title);
     panel.appendChild(el('p', 'tui-over__hint', 'Coloca las dos manos para volver a comenzar'));
+
+    var scoreBox = el('div', 'tui-over__score');
+    scoreBox.appendChild(el('span', 'tui-over__score-label', 'Puntuación final'));
+    var scoreValue = el('span', 'tui-over__score-value', '000000');
+    scoreValue.setAttribute('data-tui-final-score', '');
+    scoreBox.appendChild(scoreValue);
+    panel.appendChild(scoreBox);
 
     overlay.appendChild(panel);
     return overlay;
@@ -342,7 +365,7 @@
       ? String(Math.trunc(value)).padStart(6, '0')
       : '—';
 
-    var nodes = root.querySelectorAll('[data-tui-stat="score"]');
+    var nodes = root.querySelectorAll('[data-tui-stat="score"], [data-tui-final-score]');
     for (var i = 0; i < nodes.length; i++) {
       nodes[i].textContent = texto;
     }

@@ -539,18 +539,31 @@
 }
 
 /* --------------------------------------------------------------- pausa ---- */
-
+/* Pausa y game over comparten el velo oscuro semi-transparente para que el
+   escenario siga viéndose detrás, y transiciones de entrada y salida. */
 .tui-pause,
 .tui-over {
     position: absolute;
     inset: 0;
-    z-index: 40;
-    display: none;
+    z-index: 90;
+    display: grid;
     place-items: center;
     padding: 20px;
     background: rgba(5, 7, 15, 0.72);
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.tui-app[data-tui-screen="paused"] .tui-pause,
+.tui-app[data-tui-screen="over"] .tui-over {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.3s ease, visibility 0s;
 }
 
 .tui-pause__panel {
@@ -561,10 +574,18 @@
     width: min(420px, 100%);
     padding: clamp(20px, 4vh, 36px);
     text-align: center;
-    background: var(--tui-panel-solid);
-    border: 2px solid var(--tui-accent);
-    box-shadow: 0 0 40px var(--tui-accent), inset 0 0 40px rgba(0, 0, 0, 0.8);
-    animation: tui-pop 0.18s ease-out;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+    transition: opacity 0.28s ease, transform 0.36s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.tui-app[data-tui-screen="paused"] .tui-pause .tui-pause__panel,
+.tui-app[data-tui-screen="over"] .tui-over .tui-pause__panel {
+    opacity: 1;
+    transform: translateY(0) scale(1);
 }
 
 
@@ -584,9 +605,51 @@
     53%      { opacity: 0.58; }
 }
 
-@keyframes tui-pop {
-    from { opacity: 0; transform: scale(0.96); }
-    to   { opacity: 1; transform: scale(1); }
+@keyframes tui-letter-glow {
+    0%, 100% { text-shadow: 0 3px 0 rgba(0, 0, 0, 0.9), 0 0 10px currentColor; }
+    50%      { text-shadow: 0 3px 0 rgba(0, 0, 0, 0.9), 0 0 26px currentColor; }
+}
+
+@keyframes tui-title-enter {
+    0%   { transform: scale(0.82) rotate(-3deg); }
+    60%  { transform: scale(1.06) rotate(1deg); }
+    100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes tui-prompt-pulse {
+    0%, 100% { opacity: 0.72; }
+    50%      { opacity: 1; }
+}
+
+@keyframes tui-pause-breathe {
+    0%, 100% { transform: scale(1); text-shadow: 0 4px 0 #0a240f, 0 0 18px rgba(57, 227, 74, 0.45); }
+    50%      { transform: scale(1.04); text-shadow: 0 4px 0 #0a240f, 0 0 36px rgba(57, 227, 74, 0.9); }
+}
+
+@keyframes tui-glitch-top {
+    0%, 84%, 100% { transform: translate(-3px, 0); clip-path: inset(0 0 55% 0); }
+    86%           { transform: translate(2px, -2px); clip-path: inset(0 0 60% 0); }
+    88%           { transform: translate(-5px, 1px); clip-path: inset(10% 0 50% 0); }
+    90%           { transform: translate(3px, 0); clip-path: inset(0 0 55% 0); }
+}
+
+@keyframes tui-glitch-bottom {
+    0%, 88%, 100% { transform: translate(3px, 0); clip-path: inset(55% 0 0 0); }
+    90%           { transform: translate(-2px, 2px); clip-path: inset(60% 0 0 0); }
+    92%           { transform: translate(5px, -1px); clip-path: inset(50% 0 8% 0); }
+    94%           { transform: translate(-3px, 0); clip-path: inset(55% 0 0 0); }
+}
+
+@keyframes tui-over-flicker {
+    0%, 92%, 100% { opacity: 1; }
+    93%           { opacity: 0.72; }
+    94%           { opacity: 1; }
+    97%           { opacity: 0.85; }
+}
+
+@keyframes tui-hands-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-7px); }
 }
 
 @keyframes tui-gesture-pulse {
@@ -658,82 +721,186 @@
 
 /* ----------------------------------------------------- overlays simplificados -- */
 
-/* Overlay de inicio (dos manos). Es una indicación, no una pantalla: deja ver
-   el escenario de Tetris que hay detrás. */
+/* Overlay de inicio: velo oscuro sobre todo el escenario, contenido centrado
+   sin caja. Entra y sale con la misma transición que pausa y game over. */
 .tui-game-start-overlay {
     position: absolute;
     inset: 0;
     z-index: 100;
-    display: none;
-    align-items: flex-start;
+    display: flex;
+    align-items: center;
     justify-content: center;
-    padding-top: clamp(14px, 4vh, 40px);
-    background: transparent;
+    padding: 24px;
+    background: rgba(5, 7, 15, 0.72);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    visibility: hidden;
     pointer-events: none;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
 }
 
-.tui-game-start-message {
-    max-width: min(720px, 80vw);
-    padding: clamp(12px, 2vh, 20px) clamp(18px, 3vw, 32px);
+.tui-app[data-tui-screen="ready"] .tui-game-start-overlay {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.3s ease, visibility 0s;
+}
+
+.tui-start {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(14px, 2.6vh, 26px);
     text-align: center;
-    background: rgba(5, 7, 15, 0.85);
-    border: 2px solid var(--tui-lime);
-    box-shadow: 0 0 24px rgba(57, 227, 74, 0.35), inset 0 0 30px rgba(0, 0, 0, 0.8);
+    opacity: 0;
+    transform: scale(0.94);
+    transition: opacity 0.28s ease, transform 0.36s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.tui-app[data-tui-screen="ready"] .tui-start {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.tui-start__title {
+    display: flex;
+    align-items: center;
+    gap: clamp(2px, 0.4vw, 6px);
+    margin: 0;
+    font-family: "Press Start 2P", "Cascadia Mono", Consolas, monospace;
+    font-size: clamp(34px, 6.2vw, 76px);
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.tui-app[data-tui-screen="ready"] .tui-start__title {
+    animation: tui-title-enter 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.tui-start__letter {
+    display: block;
+    text-shadow: 0 3px 0 rgba(0, 0, 0, 0.9), 0 0 12px currentColor;
+}
+
+.tui-start__letter:nth-child(1) { color: var(--tui-yellow); }
+.tui-start__letter:nth-child(2) { color: var(--tui-lime); }
+.tui-start__letter:nth-child(3) { color: var(--tui-fuchsia); }
+.tui-start__letter:nth-child(4) { color: var(--tui-tangerine); }
+.tui-start__letter:nth-child(5) { color: #00e5ff; }
+.tui-start__letter:nth-child(6) { color: var(--tui-blue); }
+
+.tui-app[data-tui-screen="ready"] .tui-start__letter {
+    animation: tui-letter-glow 2.4s ease-in-out infinite;
+}
+
+.tui-app[data-tui-screen="ready"] .tui-start__letter:nth-child(2) { animation-delay: 0.1s; }
+.tui-app[data-tui-screen="ready"] .tui-start__letter:nth-child(3) { animation-delay: 0.2s; }
+.tui-app[data-tui-screen="ready"] .tui-start__letter:nth-child(4) { animation-delay: 0.3s; }
+.tui-app[data-tui-screen="ready"] .tui-start__letter:nth-child(5) { animation-delay: 0.4s; }
+.tui-app[data-tui-screen="ready"] .tui-start__letter:nth-child(6) { animation-delay: 0.5s; }
+
+.tui-start__hands {
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 1.8vw, 22px);
+    font-size: clamp(40px, 6.5vw, 78px);
+    line-height: 1;
+}
+
+.tui-app[data-tui-screen="ready"] .tui-start__hands {
+    animation: tui-hands-float 2.8s ease-in-out infinite;
+}
+
+.tui-start__hand {
+    display: block;
+    filter: drop-shadow(0 0 12px rgba(57, 227, 74, 0.45));
+}
+
+.tui-start__hand--right {
+    transform: scaleX(-1);
 }
 
 .tui-game-start-text {
-    font-size: clamp(16px, 2.6vw, 28px);
-    letter-spacing: 0.12em;
+    max-width: min(720px, 80vw);
+    font-size: clamp(16px, 2.4vw, 26px);
+    letter-spacing: 0.14em;
     color: var(--tui-lime);
     text-shadow: 0 0 20px rgba(57, 227, 74, 0.5);
     margin: 0;
     font-weight: bold;
 }
 
-/* Overlay de pausa simplificado: solo el texto, la pantalla la enciende el
-   atributo data-tui-screen. */
-.tui-pause {
-    position: absolute;
-    inset: 0;
-    z-index: 90;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    background: #05070F;
+.tui-app[data-tui-screen="ready"] .tui-game-start-text {
+    animation: tui-prompt-pulse 2s ease-in-out infinite;
 }
 
+/* Pausa: solo el título; la estructura y el velo vienen del bloque de pausa. */
 .tui-pause .tui-title {
-    font-size: clamp(36px, 8vw, 56px);
-    letter-spacing: 0.2em;
+    font-family: "Press Start 2P", "Cascadia Mono", Consolas, monospace;
+    font-size: clamp(34px, 7vw, 56px);
+    letter-spacing: 0.14em;
     color: var(--tui-lime);
-    text-shadow: 0 0 30px rgba(57, 227, 74, 0.6);
+    text-shadow: 0 4px 0 #0a240f, 0 0 26px rgba(57, 227, 74, 0.55);
     margin: 0;
 }
 
-/* Overlay de game over simplificado: GAME OVER + indicación de dos manos. */
+.tui-app[data-tui-screen="paused"] .tui-pause .tui-title {
+    animation: tui-pause-breathe 2.4s ease-in-out infinite;
+}
+
+/* Game over: GAME OVER + indicación de dos manos. La estructura y el velo
+   vienen del bloque compartido de pausa/game over. */
 .tui-over {
     --tui-accent: var(--tui-danger);
-
-    position: absolute;
-    inset: 0;
-    z-index: 90;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    background: #05070F;
 }
 
 .tui-over .tui-pause__panel {
-    width: min(700px, 100%);
+    width: min(880px, 96vw);
 }
 
 .tui-over .tui-title {
-    font-size: clamp(36px, 8vw, 56px);
-    letter-spacing: 0.2em;
+    position: relative;
+    font-family: "Press Start 2P", "Cascadia Mono", Consolas, monospace;
+    font-size: clamp(40px, 7.2vw, 82px);
+    letter-spacing: 0.04em;
     color: var(--tui-danger);
-    text-shadow: 0 0 30px rgba(255, 77, 109, 0.6);
-    margin: 0;
-    margin-bottom: 20px;
+    text-shadow: 0 5px 0 #3a0a14, 0 0 30px rgba(255, 77, 109, 0.65);
+    margin: 0 0 22px;
+}
+
+.tui-over .tui-title::before,
+.tui-over .tui-title::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.58;
+    mix-blend-mode: screen;
+}
+
+.tui-over .tui-title::before {
+    color: #00e5ff;
+    transform: translate(-3px, 0);
+    clip-path: inset(0 0 55% 0);
+}
+
+.tui-over .tui-title::after {
+    color: #ff2daa;
+    transform: translate(3px, 0);
+    clip-path: inset(55% 0 0 0);
+}
+
+.tui-app[data-tui-screen="over"] .tui-over .tui-title::before {
+    animation: tui-glitch-top 2.6s steps(2, end) infinite;
+}
+
+.tui-app[data-tui-screen="over"] .tui-over .tui-title::after {
+    animation: tui-glitch-bottom 2.1s steps(2, end) infinite;
+}
+
+.tui-app[data-tui-screen="over"] .tui-over .tui-title {
+    animation: tui-over-flicker 3.2s steps(2, end) infinite;
 }
 
 .tui-over__hint {
@@ -744,11 +911,29 @@
     margin: 0;
 }
 
-.tui-pause__panel {
-    text-align: center;
-    background: transparent;
-    border: none;
-    box-shadow: none;
+.tui-over__score {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 10px;
+    padding: 10px 18px;
+    background: rgba(5, 7, 15, 0.65);
+    border: 2px solid rgba(255, 77, 109, 0.45);
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.8);
+}
+
+.tui-over__score-label {
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--tui-ink-dim);
+}
+
+.tui-over__score-value {
+    font-family: "Press Start 2P", "Cascadia Mono", Consolas, monospace;
+    font-size: clamp(18px, 2.4vw, 28px);
+    color: var(--tui-danger);
+    text-shadow: 0 0 18px rgba(255, 77, 109, 0.6);
 }
 
 /* ------------------------------------- indicador del siguiente escenario ---- */
