@@ -28,6 +28,7 @@ Un Tetris **100% controlado por gestos** usando detección de manos en tiempo re
 ✅ **Audio tema** - Música y efectos; a los 500 puntos suena `tetris-500.mp3` desde el segundo 33 con crossfade y glitch de pantalla  
 ✅ **Debug mode** - Visualización de landmarks (?debug)  
 ✅ **Pausa automática** - Sin manos = pausa  
+✅ **Game Over con retorno** - Si pasan 20 s sin mostrar las dos manos, vuelve a la pantalla de inicio
 
 ---
 

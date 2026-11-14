@@ -614,8 +614,22 @@
 }
 
 @keyframes tui-letter-glow {
-    0%, 100% { text-shadow: 0 3px 0 rgba(0, 0, 0, 0.9), 0 0 10px currentColor; }
-    50%      { text-shadow: 0 3px 0 rgba(0, 0, 0, 0.9), 0 0 26px currentColor; }
+    0%, 100% {
+        text-shadow:
+            0 -2px 0 rgba(255, 255, 255, 0.22),
+            0 5px 0 #0a0d16,
+            0 9px 0 #05070f,
+            0 14px 20px rgba(0, 0, 0, 0.75),
+            0 0 14px currentColor;
+    }
+    50% {
+        text-shadow:
+            0 -2px 0 rgba(255, 255, 255, 0.22),
+            0 5px 0 #0a0d16,
+            0 9px 0 #05070f,
+            0 14px 20px rgba(0, 0, 0, 0.75),
+            0 0 32px currentColor;
+    }
 }
 
 @keyframes tui-title-enter {
@@ -630,8 +644,13 @@
 }
 
 @keyframes tui-pause-breathe {
-    0%, 100% { transform: scale(1); text-shadow: 0 4px 0 #0a240f, 0 0 18px rgba(57, 227, 74, 0.45); }
-    50%      { transform: scale(1.04); text-shadow: 0 4px 0 #0a240f, 0 0 36px rgba(57, 227, 74, 0.9); }
+    0%, 100% { transform: scale(1); text-shadow: 0 4px 0 #05222c, 0 0 18px rgba(0, 229, 255, 0.45); }
+    50%      { transform: scale(1.04); text-shadow: 0 4px 0 #05222c, 0 0 38px rgba(0, 229, 255, 0.95); }
+}
+
+@keyframes tui-piece-drift {
+    0%, 100% { transform: rotate(var(--rot)) translateY(0); }
+    50%      { transform: rotate(var(--rot)) translateY(-8px); }
 }
 
 @keyframes tui-glitch-top {
@@ -805,12 +824,12 @@
 .tui-start__title {
     display: flex;
     align-items: center;
-    gap: clamp(2px, 0.4vw, 6px);
+    gap: clamp(1px, 0.3vw, 5px);
     margin: 0;
     font-family: "Press Start 2P", "Cascadia Mono", Consolas, monospace;
-    font-size: clamp(34px, 6.2vw, 76px);
+    font-size: clamp(48px, 9vw, 120px);
     line-height: 1;
-    letter-spacing: 0;
+    letter-spacing: 0.01em;
 }
 
 .tui-app[data-tui-screen="ready"] .tui-start__title {
@@ -819,7 +838,14 @@
 
 .tui-start__letter {
     display: block;
-    text-shadow: 0 3px 0 rgba(0, 0, 0, 0.9), 0 0 12px currentColor;
+    transform: skewX(-4deg);
+    -webkit-text-stroke: 1px rgba(5, 7, 15, 0.55);
+    text-shadow:
+        0 -2px 0 rgba(255, 255, 255, 0.22),
+        0 5px 0 #0a0d16,
+        0 9px 0 #05070f,
+        0 14px 20px rgba(0, 0, 0, 0.75),
+        0 0 18px currentColor;
 }
 
 .tui-start__letter:nth-child(1) { color: var(--tui-yellow); }
@@ -875,18 +901,102 @@
 }
 
 /* Pausa: solo el título; la estructura y el velo vienen del bloque de pausa. */
+.tui-pause .tui-pause__panel {
+    width: min(760px, 96vw);
+}
+
 .tui-pause .tui-title {
     font-family: "Press Start 2P", "Cascadia Mono", Consolas, monospace;
-    font-size: clamp(34px, 7vw, 56px);
-    letter-spacing: 0.14em;
-    color: var(--tui-lime);
-    text-shadow: 0 4px 0 #0a240f, 0 0 26px rgba(57, 227, 74, 0.55);
+    font-size: clamp(48px, 10.5vw, 96px);
+    letter-spacing: 0.1em;
+    color: #00e5ff;
+    text-shadow: 0 4px 0 #05222c, 0 0 30px rgba(0, 229, 255, 0.6);
     margin: 0;
 }
 
 .tui-app[data-tui-screen="paused"] .tui-pause .tui-title {
     animation: tui-pause-breathe 2.4s ease-in-out infinite;
 }
+
+/* Piezas decorativas alrededor del texto de pausa (solo CSS, sin interacción). */
+.tui-pause__deco {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.tui-pause-piece {
+    --u: clamp(9px, 0.9vw, 13px);
+    --rot: 0deg;
+
+    position: absolute;
+    width: var(--u);
+    height: var(--u);
+    background: currentColor;
+    border-radius: 2px;
+    opacity: 0.85;
+    filter: drop-shadow(0 0 8px currentColor);
+}
+
+.tui-app[data-tui-screen="paused"] .tui-pause-piece {
+    animation: tui-piece-drift 5s ease-in-out infinite;
+}
+
+.tui-pause-piece--t {
+    box-shadow:
+        calc(var(--u) * -1) 0 0 currentColor,
+        var(--u) 0 0 currentColor,
+        0 calc(var(--u) * -1) 0 currentColor;
+}
+
+.tui-pause-piece--o {
+    box-shadow:
+        calc(var(--u) * -1) 0 0 currentColor,
+        0 calc(var(--u) * -1) 0 currentColor,
+        calc(var(--u) * -1) calc(var(--u) * -1) 0 currentColor;
+}
+
+.tui-pause-piece--s {
+    box-shadow:
+        var(--u) 0 0 currentColor,
+        0 calc(var(--u) * -1) 0 currentColor,
+        calc(var(--u) * -1) calc(var(--u) * -1) 0 currentColor;
+}
+
+.tui-pause-piece--l {
+    box-shadow:
+        0 calc(var(--u) * -1) 0 currentColor,
+        0 calc(var(--u) * -2) 0 currentColor,
+        var(--u) 0 0 currentColor;
+}
+
+.tui-pause-piece--i {
+    box-shadow:
+        var(--u) 0 0 currentColor,
+        calc(var(--u) * 2) 0 0 currentColor,
+        calc(var(--u) * 3) 0 0 currentColor;
+}
+
+.tui-pause-piece--z {
+    box-shadow:
+        var(--u) 0 0 currentColor,
+        calc(var(--u) * 2) 0 0 currentColor,
+        var(--u) calc(var(--u) * -1) 0 currentColor;
+}
+
+.tui-pause-piece:nth-child(1) { color: var(--tui-yellow);    --rot: -10deg; left: 13%; top: 24%; }
+.tui-pause-piece:nth-child(2) { color: var(--tui-lime);      --rot: 12deg;  right: 14%; top: 23%; }
+.tui-pause-piece:nth-child(3) { color: var(--tui-fuchsia);   --rot: 8deg;   left: 17%; bottom: 24%; }
+.tui-pause-piece:nth-child(4) { color: var(--tui-blue);      --rot: -14deg; right: 17%; bottom: 26%; }
+.tui-pause-piece:nth-child(5) { color: #00e5ff;              --rot: 90deg;  left: 8%;  top: 52%; }
+.tui-pause-piece:nth-child(6) { color: var(--tui-tangerine); --rot: -90deg; right: 8%; top: 50%; }
+
+.tui-pause-piece:nth-child(2) { animation-delay: -1.2s; }
+.tui-pause-piece:nth-child(3) { animation-delay: -2.1s; }
+.tui-pause-piece:nth-child(4) { animation-delay: -0.7s; }
+.tui-pause-piece:nth-child(5) { animation-delay: -3.2s; }
+.tui-pause-piece:nth-child(6) { animation-delay: -1.8s; }
 
 /* Game over: GAME OVER + indicación de dos manos. La estructura y el velo
    vienen del bloque compartido de pausa/game over. */

@@ -295,6 +295,14 @@
     title.id = 'tui-pause-title';
     panel.appendChild(title);
 
+    /* Piezas decorativas alrededor del texto. */
+    var deco = el('div', 'tui-pause__deco');
+    deco.setAttribute('aria-hidden', 'true');
+    ['t', 'o', 's', 'l', 'i', 'z'].forEach(function (tipo) {
+      deco.appendChild(el('span', 'tui-pause-piece tui-pause-piece--' + tipo));
+    });
+
+    overlay.appendChild(deco);
     overlay.appendChild(panel);
     return overlay;
   }

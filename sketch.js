@@ -42,6 +42,8 @@
 
   var PUNTAJE_GLITCH = 500;
   var DURACION_GLITCH_MS = 2400;
+  var ESPERA_GAME_OVER_MS = 20000;
+  var timeoutGameOver = null;
 
   /* ---------------------------------------------------------------- medición */
 
@@ -211,6 +213,7 @@
 
   /* Arranca o reinicia la partida. Sale de 'ready' o de 'over'. */
   function iniciarPartida() {
+    cancelarVueltaAlInicio();
     motor.reiniciar();
     reiniciarMarcadores();
     cancelarCaidaAcelerada();
@@ -235,6 +238,28 @@
     if (ui.getScreen() !== 'paused') return;
     if (!motor.reanudar()) return;
     ui.show('game');
+  }
+
+  /* Si en Game Over pasan 20 s sin que muestren las dos manos, se vuelve a la
+     pantalla de inicio de la página. */
+  function programarVueltaAlInicio() {
+    cancelarVueltaAlInicio();
+
+    timeoutGameOver = window.setTimeout(function () {
+      timeoutGameOver = null;
+      if (ui.getScreen() !== 'over') return;
+
+      motor.reiniciar();
+      reiniciarMarcadores();
+      ui.show('ready');
+    }, ESPERA_GAME_OVER_MS);
+  }
+
+  function cancelarVueltaAlInicio() {
+    if (!timeoutGameOver) return;
+
+    window.clearTimeout(timeoutGameOver);
+    timeoutGameOver = null;
   }
 
   /* Toda la decisión vive en el motor (Tetris.accionSegunManos). */
@@ -564,6 +589,7 @@
       cancelarCaidaAcelerada();
       ui.setStats({ score: motor.puntaje });
       ui.show('over');
+      programarVueltaAlInicio();
     }
 
     dibujarFijas();
