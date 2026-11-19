@@ -29,8 +29,10 @@ const CONFIG = {
   GESTURE_CONFIDENCE_MIN: 0.7, // Confianza mínima para detectar gesto
   GESTURE_ENABLED: true, // Activar/desactivar detección de gestos
   
-  // Umbrales para detección de dedos extendidos
-  FINGER_EXTENDED_THRESHOLD: 0.05, // Distancia mínima entre punta y articulación media
+  // Umbral para dedos extendidos: distancia nudillo→punta comparada con
+  // nudillo→PIP. Relativo al propio dedo, así no depende de la distancia a la
+  // cámara ni del tamaño de la mano.
+  FINGER_EXTENDED_RATIO: 1.35,
   
   // Umbrales de movimiento
   HAND_MOVEMENT_THRESHOLD: 0.006, // Cambio mínimo de X entre frames para marcar la dirección del gesto
@@ -39,8 +41,9 @@ const CONFIG = {
   THUMB_INDEX_PINCH_THRESHOLD: 0.04,
 
   // Un pulgar levantado debe quedar lejos de las articulaciones de los otros
-  // dedos; si está envuelto en el puño, queda cerca y gana la pausa.
-  THUMB_FINGER_PROXIMITY_THRESHOLD: 0.06,
+  // dedos; si está envuelto en el puño, queda cerca y gana el puño.
+  THUMB_FINGER_PROXIMITY_THRESHOLD: 0.06, // Respaldo absoluto
+  THUMB_FINGER_PROXIMITY_RATIO: 0.4, // Relativo al largo de la palma
 
   // Configuración de sostenimiento (hold)
   HOLD_ENABLED: true, // Activar sostenimiento
@@ -55,6 +58,13 @@ const CONFIG = {
 
   // Gestos instantáneos (sin hold, solo cooldown corto)
   GESTURES_INSTANT: ['ROCK', 'PULGAR_ARRIBA'],
+
+  // Cooldown propio de cada gesto instantáneo. Ambos van despacio para que el
+  // jugador pueda decidir cuánto girar o qué escenario elegir.
+  INSTANT_COOLDOWNS: {
+    ROCK: 600,
+    PULGAR_ARRIBA: 600,
+  },
 
   // Gestos continuos (sin hold, se activan mientras duren)
   GESTURES_CONTINUOUS: ['MANO_ABIERTA_IZQUIERDA', 'MANO_ABIERTA_DERECHA', 'VICTORIA'],
@@ -765,36 +775,49 @@ const HandPose = (() => {
     return distance(mcpPoint, tipPoint) < distance(mcpPoint, pipPoint);
   }
 
-  // Detectar si un dedo está extendido comparando punta con articulación media
+  // Largo de la palma: muñeca (0) a nudillo del dedo medio (9). Se usa para
+  // que la proximidad del pulgar a los otros dedos no dependa de la distancia
+  // a la cámara.
+  function handScale(hand) {
+    const wrist = hand.landmarks[0];
+    const middleMcp = hand.landmarks[9];
+    if (!wrist || !middleMcp) return 0;
+    return distance(wrist, middleMcp);
+  }
+
+  // Detectar si un dedo está extendido: la punta debe quedar claramente más
+  // lejos del nudillo (MCP) que la articulación media (PIP/IP). Es una medida
+  // relativa al propio dedo, así que funciona a cualquier distancia y con la
+  // mano inclinada. Un dedo doblado acerca la punta al nudillo y no pasa.
   function isFingerExtended(hand, fingerIndices) {
-    // fingerIndices: [punta, articulación media]
+    // fingerIndices: [punta, articulación media (PIP/IP), nudillo (MCP)]
     const tipPoint = hand.landmarks[fingerIndices[0]];
-    const midPoint = hand.landmarks[fingerIndices[1]];
+    const pipPoint = hand.landmarks[fingerIndices[1]];
+    const mcpPoint = hand.landmarks[fingerIndices[2]];
 
-    if (!tipPoint || !midPoint) return false;
+    if (!tipPoint || !pipPoint || !mcpPoint) return false;
 
-    const distance = Math.sqrt(
-      (tipPoint[0] - midPoint[0]) ** 2 + (tipPoint[1] - midPoint[1]) ** 2
-    );
+    const mcpToPip = distance(mcpPoint, pipPoint);
+    if (mcpToPip <= 0) return false;
 
-    return distance > CONFIG.FINGER_EXTENDED_THRESHOLD;
+    return distance(mcpPoint, tipPoint) > mcpToPip * CONFIG.FINGER_EXTENDED_RATIO;
   }
 
   // Detectar si pulgar está extendido (diferente a otros dedos)
   function isThumbExtended(hand) {
-    // Pulgar: punta (4) vs articulación media (2)
-    return isFingerExtended(hand, [4, 2]);
+    // Pulgar: punta (4), articulación IP (3), nudillo (2)
+    return isFingerExtended(hand, [4, 3, 2]);
   }
 
   // Detectar si índice está extendido
   function isIndexExtended(hand) {
-    // Índice: punta (8) vs articulación media (6)
-    return isFingerExtended(hand, [8, 6]);
+    // Índice: punta (8), PIP (6), nudillo (5)
+    return isFingerExtended(hand, [8, 6, 5]);
   }
 
-  // Pulgar realmente levantado: extendido, por encima de su base y lejos de
-  // las articulaciones de los otros dedos. Un pulgar envuelto en el puño no
-  // cumple la distancia y deja que la pausa tenga prioridad.
+  // Pulgar realmente levantado: extendido, lejos del centro de la palma y de
+  // las articulaciones de los otros dedos. Se usa la distancia a la palma (no
+  // la coordenada Y) para que funcione con la mano inclinada o girada.
   function isThumbUp(hand) {
     if (!isThumbExtended(hand)) return false;
 
@@ -802,15 +825,32 @@ const HandPose = (() => {
     const base = hand.landmarks[2];
     if (!tip || !base) return false;
 
-    // La punta del pulgar debe quedar por encima de su base (Y menor).
-    if (tip[1] >= base[1]) return false;
+    const palmPoints = [0, 5, 9, 13, 17]
+      .map((index) => hand.landmarks[index])
+      .filter(Boolean);
+    if (palmPoints.length === 0) return false;
+
+    let palmX = 0;
+    let palmY = 0;
+    palmPoints.forEach((point) => {
+      palmX += point[0];
+      palmY += point[1];
+    });
+    const palm = [palmX / palmPoints.length, palmY / palmPoints.length];
+
+    if (distance(tip, palm) <= distance(base, palm)) return false;
+
+    const escala = handScale(hand);
+    const proximidad = escala > 0
+      ? escala * CONFIG.THUMB_FINGER_PROXIMITY_RATIO
+      : CONFIG.THUMB_FINGER_PROXIMITY_THRESHOLD;
 
     const fingerMids = [6, 10, 14, 18]
       .map((index) => hand.landmarks[index])
       .filter(Boolean);
 
     const nearFinger = fingerMids.some(
-      (point) => distance(tip, point) < CONFIG.THUMB_FINGER_PROXIMITY_THRESHOLD
+      (point) => distance(tip, point) < proximidad
     );
 
     return !nearFinger;
@@ -827,20 +867,33 @@ const HandPose = (() => {
     const ringCurled = isFingerCurled(hand, [16, 14, 13]);
     const pinkyCurled = isFingerCurled(hand, [20, 18, 17]);
 
-    // PUÑO vs PULGAR_ARRIBA: los cuatro dedos largos doblados. Si el pulgar
-    // está claramente levantado gana el pulgar; si está envuelto, gana el puño.
-    if (indexCurled && middleCurled && ringCurled && pinkyCurled) {
-      return isThumbUp(hand) ? 'PULGAR_ARRIBA' : 'PUÑO';
+    const indexUp = isIndexExtended(hand);
+    const middleUp = isFingerExtended(hand, [12, 10, 9]);
+    const ringUp = isFingerExtended(hand, [16, 14, 13]);
+    const pinkyUp = isFingerExtended(hand, [20, 18, 17]);
+
+    const dedosDoblados = [indexCurled, middleCurled, ringCurled, pinkyCurled]
+      .filter(Boolean).length;
+    const dedosExtendidos = [indexUp, middleUp, ringUp, pinkyUp]
+      .filter(Boolean).length;
+
+    // PULGAR_ARRIBA: pulgar claramente levantado y ningún dedo largo claramente
+    // extendido. Se tolera un dedo largo "relajado" (ni doblado ni extendido),
+    // típico del meñique en un pulgar arriba; antes eso hacía que el gesto no
+    // se reconociera.
+    if (isThumbUp(hand) && dedosDoblados >= 3 && dedosExtendidos === 0) {
+      return 'PULGAR_ARRIBA';
     }
 
-    const indexUp = isIndexExtended(hand);
-    const middleUp = isFingerExtended(hand, [12, 10]);
-    const ringUp = isFingerExtended(hand, [16, 14]);
-    const pinkyUp = isFingerExtended(hand, [20, 18]);
+    // PUÑO: los cuatro dedos largos doblados y el pulgar no está levantado.
+    if (dedosDoblados === 4) {
+      return 'PUÑO';
+    }
 
-    // VICTORIA: índice y medio extendidos (no doblados); anular y meñique
-    // doblados. El pulgar se ignora a propósito.
-    if (indexUp && middleUp && !indexCurled && !middleCurled && ringCurled && pinkyCurled) {
+    // VICTORIA: índice y medio extendidos; anular y meñique no extendidos
+    // (doblados o relajados). Antes se exigía que estuvieran radialmente
+    // doblados y un meñique a medio doblar rompía el gesto.
+    if (indexUp && middleUp && !ringUp && !pinkyUp) {
       return 'VICTORIA';
     }
 
@@ -850,9 +903,10 @@ const HandPose = (() => {
       return 'ROCK';
     }
 
-    // MANO_ABIERTA: los cuatro dedos largos extendidos. El pulgar no se exige
-    // porque suele quedar fuera de cuadro o pegado a la palma.
-    if (indexUp && middleUp && ringUp && pinkyUp) {
+    // MANO_ABIERTA: índice y medio extendidos más al menos uno de anular o
+    // meñique. Se tolera un dedo relajado (el meñique suele quedar a medio
+    // extender) para que el desplazamiento no se corte. El pulgar no se exige.
+    if (indexUp && middleUp && dedosExtendidos >= 3) {
       return 'MANO_ABIERTA';
     }
 
@@ -1068,7 +1122,8 @@ const HandPose = (() => {
           manoDuena: owner,
           timestamp: currentTime,
         });
-        state.hold.instantCooldowns[gesture] = currentTime + 300;
+        const cooldownMs = CONFIG.INSTANT_COOLDOWNS[gesture] || 300;
+        state.hold.instantCooldowns[gesture] = currentTime + cooldownMs;
         if (CONFIG.DEBUG) {
           console.log('⚡ Gesto instantáneo: ' + gesture);
         }

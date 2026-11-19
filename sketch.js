@@ -44,6 +44,8 @@
   var DURACION_GLITCH_MS = 2400;
   var ESPERA_GAME_OVER_MS = 20000;
   var timeoutGameOver = null;
+  var MARGEN_PAUSA_SIN_MANOS_MS = 500;
+  var timeoutPausaPorManos = null;
 
   /* ---------------------------------------------------------------- medición */
 
@@ -240,6 +242,31 @@
     ui.show('game');
   }
 
+  /* Si desaparecen las manos en plena partida, espera 500 ms antes de pausar:
+     un parpadeo del detector no debe cortar el juego. Si una mano reaparece
+     dentro del margen, la pausa pendiente se cancela. */
+  function programarPausaPorManos() {
+    if (timeoutPausaPorManos) return;
+
+    timeoutPausaPorManos = window.setTimeout(function () {
+      timeoutPausaPorManos = null;
+      if (ui.getScreen() !== 'game') return;
+
+      var hp = window.HandPose;
+      var cantidad = hp && hp.estado ? hp.estado.cantidadManos : 0;
+      if (cantidad > 0) return;
+
+      pausarPartida();
+    }, MARGEN_PAUSA_SIN_MANOS_MS);
+  }
+
+  function cancelarPausaPorManos() {
+    if (!timeoutPausaPorManos) return;
+
+    window.clearTimeout(timeoutPausaPorManos);
+    timeoutPausaPorManos = null;
+  }
+
   /* Si en Game Over pasan 20 s sin que muestren las dos manos, se vuelve a la
      pantalla de inicio de la página. */
   function programarVueltaAlInicio() {
@@ -267,6 +294,15 @@
     if (!window.Tetris || typeof window.Tetris.accionSegunManos !== 'function') return;
 
     var accion = window.Tetris.accionSegunManos(ui.getScreen(), cantidad);
+    if (accion === 'pausar') {
+      programarPausaPorManos();
+      return;
+    }
+
+    // Cualquier otra acción, o la reaparición de una mano, cancela la pausa
+    // pendiente: el margen solo se consume si las manos siguen ausentes.
+    cancelarPausaPorManos();
+
     if (accion === 'iniciar' || accion === 'reiniciar') {
       iniciarPartida();
     } else if (accion === 'pausar') {
@@ -293,6 +329,7 @@
       // Al cambiar de pantalla se corta toda acción continua y se olvida el
       // objetivo de la mano: nada debe seguir moviendo piezas fuera de partida.
       cancelarCaidaAcelerada();
+      cancelarPausaPorManos();
       objetivoMano = null;
 
       if (destino === 'game') {
@@ -426,7 +463,7 @@
 
       if (gesto !== 'ROCK') return;
 
-      // El cooldown lo maneja handpose (300 ms por gesto): cada confirmación
+      // El cooldown lo maneja handpose (600 ms por gesto): cada confirmación
       // avanza un escenario mientras ROCK siga detectado.
       ui.pulseGesture('rock');
       var siguiente = ui.getNextScenario();
